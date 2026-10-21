@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: The residual stream</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>The residual stream</h1>
+<video src="ch03-residual-stream.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> one token's journey through Course-8B. The token ID picks a row of the 128,256 × 4096 embedding table, giving the vector h (4,096 numbers). Each of the 64 sublayers (attention and feed-forward network, FFN, in each of 32 layers) reads a copy normalized by root-mean-square normalization (RMSNorm) and adds its output back: h ← h + f(RMSNorm(h)). The stream is never overwritten, so its size grows slowly with depth (the meter is illustrative). A final RMSNorm and the 4096 × 128,256 unembedding turn h into next-token probabilities. <a href="ch03-residual-stream.gif">GIF version</a></p>
+</div></body></html>

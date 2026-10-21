@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: One attention head</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>One attention head</h1>
+<video src="ch03-attention-formation.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> how the token "it" gathers information. Every token's vector is multiplied by W_Q, W_K and W_V to give a query, key and value. The query of "it" is dot-multiplied with the keys of all tokens up to itself (later tokens are masked), divided by √128 (head dimension 128) and passed through softmax, giving weights that sum to 1 (illustrative scores; "cat" gets 0.60). The output is the weighted sum of the value vectors. Every token does the same, giving a lower-triangular grid. Course-8B caches keys and values: 131,072 bytes (128 KiB) per token. <a href="ch03-attention-formation.gif">GIF version</a></p>
+</div></body></html>
