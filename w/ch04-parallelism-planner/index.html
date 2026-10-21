@@ -4,7 +4,7 @@
 <div class="try"><h2>Try this</h2><ol>
 <li>Defaults: Course-8B (8.03 billion parameters, 8,192-token sequences) on 512 H100s with hybrid sharded data parallel (HSDP: shard within each 8-GPU node, replicate across nodes). Switch HSDP to plain distributed data parallel (DDP) and watch memory pass the 80 GB line.</li>
 <li>Set tensor parallelism (TP) to 8 with ZeRO-1, then turn on "TP across nodes".</li>
-<li>Set TP 2, pipeline parallelism (PP) 4 with ZeRO-1, then raise the global batch from 512 to 2,048 sequences (8 → 32 micro-batches): the bubble falls from 27% to 9%.</li></ol></div>
+<li>Set TP 2 and pipeline parallelism (PP) 4 with ZeRO-1 (8 micro-batches per step, bubble 27%). Then get 32 micro-batches, either by raising TP to 8 at the same 512-sequence batch (fewer data-parallel replicas) or by raising the global batch to 2,048 sequences: the bubble falls to 9%.</li></ol></div>
 <div class="card">
 <label style="flex:none">GPUs<span class="seg" id="gseg"></span></label><input type="hidden" id="G" value="512">
 <label style="flex:none;margin-top:8px">Tensor parallel (TP)<span class="seg" id="tseg"></span></label><input type="hidden" id="tp" value="1">
