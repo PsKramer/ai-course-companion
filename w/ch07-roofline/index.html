@@ -4,7 +4,7 @@
 <div class="try"><h2>Try this</h2><ol>
 <li>Defaults: H100 in bf16, Course-8B's feed-forward up+gate GEMM (general matrix multiply, 4096 × 28,672) at M = 1 token. Slide M to 8, 64, 512 and 8,192 (prefill) and watch the dot climb the slope and reach the flat roof.</li>
 <li>Switch the chip to B200 or TPU7x, then the precision to FP8 (8-bit floating point): does any point change side?</li>
-<li>Turn on the shared-memory roof and step the tile size up until the tile dot clears the shared-memory ridge, on H100 and on B200.</li></ol></div>
+<li>Turn on the shared-memory roof and step the tile size up until the tile dot reaches the shared-memory ridge, on H100 and on B200.</li></ol></div>
 <div class="card">
 <div class="row"><label>Chip<select id="chip"><option value="h100">H100 SXM: 989 TFLOP/s bf16, 3.35 TB/s</option><option value="b200">B200: 2,250 TFLOP/s bf16, 7.7 TB/s</option><option value="mi355x">MI355X: 2,500 TFLOP/s bf16, 8 TB/s</option><option value="tpu7x">TPU7x: 2,307 TFLOP/s bf16, 7.38 TB/s</option><option value="custom">Custom</option></select></label>
 <label>Precision (number format)<select id="prec"><option value="bf16">bf16 (2 bytes)</option><option value="fp8">FP8 (1 byte)</option><option value="fp4">FP4 (half a byte; B200 only)</option></select></label></div>
@@ -35,7 +35,7 @@ function upd(){const c=chip(),pr=$('#prec').value;$('#custom').style.display=$('
  const sbw=RF.smemBW(c);let sr=null;if($('#sm').checked&&sbw){const [tm,tn]=$('#tile').value.split(',').map(Number);sr=peak/sbw;pts.push({name:`Tile ${tm} × ${tn} (shared memory)`,I:RF.tileI(tm,tn,b),col:'#55A868',smem:true})}
  if($('#sm').checked&&!sbw)warn+=(warn?' ':'')+'Shared-memory roof is shown only for H100 and B200 (SM count and clock known).';
  $('#tb').innerHTML='<tr><th>Kernel</th><th class="num">FLOP/byte</th><th class="num">% of peak</th><th class="num">Bound</th><th class="num">Roofline time</th></tr>'+pts.map(p=>{const roofBW=p.smem?sbw:bw;const a=RF.attain(p.I,peak,roofBW);const at=p.smem?p.I>=0.99*sr:p.I>=ridge;
-  return `<tr><td><span style="color:${p.col}">●</span> ${p.name}</td><td class="num">${p.I<10?p.I.toFixed(2):p.I.toFixed(1)}</td><td class="num">${(100*a/peak).toFixed(a/peak<0.1?2:1)}%</td><td class="num">${p.smem?(at?'clears shared-memory ridge':'shared-memory-bound'):(at?'compute':'memory')}</td><td class="num">${p.t?ts(p.t):'—'}</td></tr>`}).join('');
+  return `<tr><td><span style="color:${p.col}">●</span> ${p.name}</td><td class="num">${p.I<10?p.I.toFixed(2):p.I.toFixed(1)}</td><td class="num">${(100*a/peak).toFixed(a/peak<0.1?2:1)}%</td><td class="num">${p.smem?(at?'reaches shared-memory ridge':'shared-memory-bound'):(at?'compute':'memory')}</td><td class="num">${p.t?ts(p.t):'—'}</td></tr>`}).join('');
  $('#rid').textContent=ridge.toFixed(0)+' FLOP/byte';$('#srid').textContent=sbw?`${(sbw/1e12).toFixed(1)} TB/s, ridge ${(peak/sbw).toFixed(0)} FLOP/byte`:'not available for this chip';
  const cx=RF.crossM(K,N,b,ridge);$('#cx').textContent=cx?cx.toLocaleString()+' tokens':'—';$('#warn').textContent=warn;
  draw(peak,bw,ridge,sbw&&$('#sm').checked?sbw:null,c.name,prec)}
