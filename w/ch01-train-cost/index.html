@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Training cost calculator (C = 6ND)</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>Training compute &amp; cost: C ≈ 6·N·D</h1>
+<div class="try"><h2>Try this</h2><ol><li>Defaults are Llama 3.1 405B (N = 405B, D = 15.6T tokens, 16,384 H100s, 40% MFU). Check C against the reported 3.8×10²⁵ FLOP.</li><li>Press <i>Chinchilla D = 20N</i> and compare cost and D/N with the real run.</li><li>Switch H100 → B200, then halve MFU.</li></ol></div>
+<div class="card"><div class="row">
+<label>Parameters N: <span class="big" id="Nv"></span><input type="range" id="N" min="8" max="12.301" step="0.001" value="11.607"></label>
+<label>Training tokens D: <span class="big" id="Dv"></span><input type="range" id="D" min="9" max="14" step="0.001" value="13.193"></label>
+</div><div class="row" style="margin-top:6px">
+<button id="chin">Chinchilla D = 20N</button>
+<label style="flex:0 1 220px">Accelerator<select id="acc"><option value="989e12">H100 SXM — BF16 dense 989 TFLOP/s</option><option value="2.25e15">B200 — BF16 dense ~2.25 PFLOP/s</option><option value="custom">Custom…</option></select></label>
+<label id="custL" style="display:none;flex:0 1 160px">Custom peak (TFLOP/s)<input type="number" id="cust" value="1000" min="1"></label>
+</div><div class="row" style="margin-top:6px">
+<label>#GPUs: <b id="Gv"></b><input type="range" id="G" min="0.903" max="5.301" step="0.001" value="4.2144"></label>
+<label>MFU: <b id="Mv"></b><input type="range" id="M" min="10" max="70" step="1" value="40"></label>
+<label>$/GPU-hour: <b id="Pv"></b><input type="range" id="P" min="0.5" max="8" step="0.05" value="2.5"></label>
+</div>
+<div class="row" style="margin-top:6px"><label style="flex-direction:row;align-items:center;gap:6px;min-width:0;flex:0 0 auto"><input type="checkbox" id="att"> add attention FLOPs (6·L·T·d per token)</label>
+<label id="seqL" style="display:none">Sequence length T: <b id="Tv"></b><input type="range" id="T" min="11" max="17" step="1" value="13"></label></div>
+</div>
+<div class="card"><table>
+<tr><th>Total training compute C</th><td class="num big" id="C"></td></tr>
+<tr><th>Tokens per parameter D/N</th><td class="num" id="r"></td></tr>
+<tr><th>GPU-hours = C / (peak·MFU·3600)</th><td class="num" id="gh"></td></tr>
+<tr><th>Wall-clock (days)</th><td class="num" id="days"></td></tr>
+<tr><th>Cost (GPU rental only)</th><td class="num big" id="cost"></td></tr>
+<tr id="attrow" style="display:none"><th>Attention share of C <span class="mut" id="ld"></span></th><td class="num" id="ash"></td></tr>
+</table>
+<canvas id="cv"></canvas>
+<div class="mut">Reference runs, training compute C (Epoch AI). Your run is the orange marker.</div>
+</div>
+<div class="notice hidden"><h2>What to notice</h2>The 6ND estimate reproduces the reported 405B compute almost exactly, and the real run used ~38 tokens/param, about 2× Chinchilla: labs overtrain because inference cost scales with N, not D. Faster chips cut wall-clock days; cost moves only if $/GPU-hour falls slower than peak FLOP/s rises. MFU is a direct multiplier on the bill.</div>
+<div class="model"><b>Model.</b> C ≈ 6·N·D (2ND forward + 4ND backward per token; dense model, for MoE use N_act). The attention option adds Kaplan et al. (2020)'s per-token term 2·L·T·d forward, ×3 for forward+backward, with L and d estimated from N ≈ 12·L·d² at d/L = 128. GPU-hours = C / (peak · MFU · 3600). Cost is GPU rental only; ablations, failed runs, data, and staff push real budgets several times higher. Reference values: Epoch AI notable-models database (est. = Epoch estimate; lab has not published).</div>
+</div>
+<script src="../../assets/common.js"></script><script>
+const REF=[["GPT-3 175B",3.1e23],["Chinchilla 70B",5.8e23],["GPT-4 (est.)",2.1e25],["Llama 3.1 405B",3.8e25],["GPT-4.5 (est.)",2.1e26],["Grok 4 (est.)",5.0e26]];
+const cv=$('#cv');
+function upd(){
+ const N=10**val('N'),D=10**val('D'),G=Math.round(10**val('G')),M=val('M')/100,P=val('P');
+ const a=$('#acc').value;$('#custL').style.display=a==='custom'?'flex':'none';
+ const peak=a==='custom'?val('cust')*1e12:parseFloat(a);
+ const att=$('#att').checked;$('#seqL').style.display=att?'flex':'none';$('#attrow').style.display=att?'':'none';
+ const T=2**val('T');const L=Math.cbrt(N/(12*128*128));const d=128*L;
+ const Cd=6*N*D,Ca=att?6*L*T*d*D:0,C=Cd+Ca;
+ const gh=C/(peak*M*3600);
+ $('#Nv').textContent=fmt(N,1);$('#Dv').textContent=fmt(D,2);$('#Gv').textContent=G.toLocaleString();$('#Mv').textContent=(M*100).toFixed(0)+'%';$('#Pv').textContent='$'+P.toFixed(2);$('#Tv').textContent=T.toLocaleString();
+ $('#C').textContent=sci(C)+' FLOP';$('#r').textContent=(D/N).toFixed(1)+(D/N<20?' (under Chinchilla)':D/N>40?' (overtrained)':' (≈ compute-optimal)');
+ $('#gh').textContent=fmt(gh,2);$('#days').textContent=(gh/G/24).toFixed(1);$('#cost').textContent='$'+fmt(gh*P,2);
+ $('#ld').textContent=`(L≈${L.toFixed(0)}, d≈${d.toFixed(0)})`;$('#ash').textContent=(100*Ca/C).toFixed(1)+'%';
+ draw(C);}
+function draw(C){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.6:0.32);const lo=22,hi=27.5,x=v=>14+(w-28)*(Math.log10(v)-lo)/(hi-lo);
+ ctx.clearRect(0,0,w,h);ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(14,h*0.5);ctx.lineTo(w-14,h*0.5);ctx.stroke();
+ ctx.font='11px sans-serif';ctx.fillStyle='#4D4D4D';ctx.textAlign='center';
+ for(let e=22;e<=27;e++){ctx.fillRect(x(10**e)-0.5,h*0.5-4,1,8);ctx.fillText('1e'+e,x(10**e),h*0.5+16)}
+ REF.forEach(([n,c],i)=>{const X=x(c);ctx.fillStyle='#4C72B0';ctx.beginPath();ctx.arc(X,h*0.5,4,0,7);ctx.fill();
+  ctx.save();ctx.translate(X,h*0.5-8);ctx.rotate(-0.6);ctx.textAlign='left';ctx.fillText(n,0,0);ctx.restore();});
+ const X=Math.max(14,Math.min(w-14,x(C)));ctx.fillStyle='#DD8452';ctx.beginPath();ctx.moveTo(X,h*0.5+22);ctx.lineTo(X-6,h*0.5+34);ctx.lineTo(X+6,h*0.5+34);ctx.fill();
+ ctx.fillText('you',X,h*0.5+46);}
+$('#chin').onclick=()=>{$('#D').value=Math.min(14,Math.max(9,val('N')+Math.log10(20)));upd()};
+['acc','cust','att'].forEach(i=>$('#'+i).addEventListener('input',upd));
+bindRanges(['N','D','G','M','P','T'],upd);onResize(upd);
+</script></body></html>

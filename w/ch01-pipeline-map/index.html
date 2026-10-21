@@ -1,0 +1,41 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pipeline map</title><link rel="stylesheet" href="../../assets/style.css">
+<style>
+.flow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:stretch}
+.st{min-width:0;min-height:58px;border-radius:10px;border:2px solid var(--c);background:#fff;color:var(--ink);font-size:.8rem;overflow-wrap:anywhere;font-weight:600;padding:6px 8px;display:flex;flex-direction:column;justify-content:center;text-align:center;position:relative}
+.st small{font-weight:400;color:var(--fg);font-size:.72rem}
+.st.sel{border-width:3px;background:color-mix(in srgb,var(--c) 14%,#fff);box-shadow:0 0 0 2px var(--c)}
+.arrow{align-self:center;color:#9a9a9a;font-size:1rem}
+.hw{margin-top:4px;grid-column:1/-1}
+.st:not(.hw)::after{content:'→';position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:#9a9a9a;font-weight:400;font-size:.8rem;z-index:1}
+.st:nth-child(7)::after{content:''}
+.panel h2{margin:0 0 6px;font-size:1.02rem}
+.panel table th{width:32%}
+.chip{display:inline-block;border-radius:999px;padding:1px 8px;font-size:.75rem;color:#fff;background:var(--c);margin-left:6px;vertical-align:middle}
+@media (max-width:640px){.flow{grid-template-columns:repeat(3,1fr)}.st:nth-child(3n)::after{content:''}}
+@media (max-width:420px){.flow{grid-template-columns:repeat(2,1fr)}.st:nth-child(3n)::after{content:'→'}.st:nth-child(2n)::after{content:''}}
+</style></head><body><div class="wrap">
+<h1>The full pipeline, stage by stage</h1>
+<div class="try"><h2>Try this</h2><ol><li>Tap each stage left to right and follow the artifact: what goes in, what comes out.</li><li>Compare the dominant cost row of Pre-training with Inference/Serving.</li><li>Tap Hardware/Cluster last: it sits under every other stage.</li></ol></div>
+<div class="card"><div class="flow" id="flow"></div></div>
+<div class="card panel" id="panel"></div>
+<div class="notice hidden"><h2>What to notice</h2>Every stage's output is the next stage's input, so a defect upstream (bad dedup, a tokenizer that splits numbers badly) is paid for in every later stage. Training is a one-time FLOP bill dominated by 6·N·D; serving is a recurring bill dominated by memory bandwidth and KV-cache capacity, which is why the hardware story differs between the two.</div>
+<div class="model"><b>Numbers</b> are order-of-magnitude anchors for 2024–2026 frontier and open models (e.g. Llama 3.1 405B: 15.6T training tokens, 3.8×10²⁵ FLOP); the chapter pages carry exact sources.</div>
+</div>
+<script src="../../assets/common.js"></script><script>
+const S=[
+{id:'data',n:'Data',c:'#4C72B0',ch:'Ch 2',in:'Raw web crawl (Common Crawl WARC/WET), code, books, papers, licensed and synthetic data',out:'Deduplicated, filtered, decontaminated text shards with a mixture recipe; ~10¹³ tokens (15T+ for 2024–2025 open models)',cost:'CPU/storage and classifier inference over petabytes; dedup (MinHash LSH) and quality classifiers dominate',knobs:'Filter thresholds, dedup granularity, mixture weights, synthetic share, decontamination against evals'},
+{id:'tok',n:'Tokenizer',c:'#4C72B0',ch:'Ch 2',in:'UTF-8 bytes',out:'int32 token IDs `[B, T]`; vocab V ≈ 32k–260k (Llama 3: 128k)',cost:'Negligible FLOPs, but V sets embedding/unembedding size (2·V·d params if untied) and tokens-per-byte sets the cost of every later stage',knobs:'Algorithm (byte-level BPE, Unigram), vocab size V, pre-tokenization regex, number/whitespace handling'},
+{id:'arch',n:'Architecture',c:'#DD8452',ch:'Ch 3',in:'Token IDs `[B, T]`',out:'Logits `[B, T, V]` via L blocks of attention + FFN on the residual stream `[B, T, d]`',cost:'≈ 2·N FLOPs per token forward (N_act for MoE) + attention ≈ 4·L·T·d per token; KV cache 2·L·h_kv·d_h bytes·precision per token',knobs:'L, d, h, h_kv (GQA/MLA), d_ff, MoE E and k, positional scheme (RoPE), context length'},
+{id:'pre',n:'Pre-training',c:'#DD8452',ch:'Ch 4',in:'Random init + D tokens of data',out:'Base model weights (N params) that predict the next token',cost:'C ≈ 6·N·D FLOPs: 10²⁴–10²⁶+ FLOP, 10⁴–10⁵ GPUs for months; $10⁷–10⁸+',knobs:'N vs D (scaling laws), optimizer (AdamW, Muon), LR schedule (cosine, WSD), precision (bf16, FP8), parallelism (DP/FSDP, TP, PP, CP, EP)'},
+{id:'post',n:'Post-training / RL',c:'#8172B3',ch:'Ch 5',in:'Base model + demonstrations, preference data, verifiable tasks',out:'Instruction-following, aligned, reasoning model (same shape as base)',cost:'SFT/DPO: small vs pre-training. RL with verifiable rewards: dominated by rollout generation (inference), now a growing share of total compute',knobs:'SFT data, reward model vs verifier, PPO/GRPO/DPO, KL penalty, rollout length, distillation'},
+{id:'inf',n:'Inference / Serving',c:'#55A868',ch:'Ch 6',in:'User prompt tokens',out:'Generated tokens: prefill `[B, T]` once, then decode one token per step',cost:'Prefill is compute-bound (≈ 2·N·T FLOPs); decode is memory-bandwidth-bound (stream N·bytes + KV cache per step). Recurring $ per million tokens',knobs:'Batching (continuous), KV cache paging, quantization (FP8/INT4/FP4), speculative decoding, prefix caching, disaggregated prefill/decode'},
+{id:'fr',n:'Frontier',c:'#4D4D4D',ch:'Ch 8',in:'Everything above',out:'Agents and tool use, long-horizon RL, test-time scaling, multimodal/world models, interpretability',cost:'Test-time compute: more decode tokens per answer shifts cost from training to serving',knobs:'Reasoning budget, tool/environment design, verifier quality'},
+{id:'hw',n:'Hardware / Cluster',c:'#C44E52',ch:'Ch 7',in:'Kernels and collectives from every stage',out:'FLOP/s, bytes/s, and interconnect bandwidth delivered at some $/W',cost:'Capex + power: an H100 SXM is 700 W TDP with 989 TFLOP/s bf16 dense and 3.35 TB/s HBM3; utilization (MFU) decides what you actually get',knobs:'Roofline position (FLOP/byte), kernel fusion and tiling, precision (FP8/MXFP4/NVFP4), NVLink/InfiniBand topology, GPU vs ASIC (TPU, Trainium, Groq, Cerebras)'}];
+const flow=$('#flow');let sel='data';
+function render(){flow.innerHTML='';S.forEach((s,i)=>{if(s.id==='hw')return;const b=document.createElement('button');b.className='st'+(sel===s.id?' sel':'');b.style.setProperty('--c',s.c);b.innerHTML=`${i+1}. ${s.n}<small>${s.ch}</small>`;b.onclick=()=>{sel=s.id;render()};flow.appendChild(b);});
+ const s=S[7];const b=document.createElement('button');b.className='st hw'+(sel===s.id?' sel':'');b.style.setProperty('--c',s.c);b.innerHTML=`${s.n} — under every stage<small>${s.ch}</small>`;b.onclick=()=>{sel=s.id;render()};flow.appendChild(b);
+ const p=S.find(x=>x.id===sel);const code=t=>t.replace(/`([^`]+)`/g,'<code>$1</code>');
+ $('#panel').innerHTML=`<h2>${p.n}<span class="chip" style="--c:${p.c}">${p.ch}</span></h2><table><tr><th>Input</th><td>${code(p.in)}</td></tr><tr><th>Output artifact</th><td>${code(p.out)}</td></tr><tr><th>Dominant cost</th><td>${code(p.cost)}</td></tr><tr><th>Key knobs</th><td>${code(p.knobs)}</td></tr></table>`;}
+render();
+</script></body></html>

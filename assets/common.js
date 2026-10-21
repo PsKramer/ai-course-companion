@@ -10,3 +10,7 @@ function setupCanvas(cv,aspect){ // HiDPI responsive canvas; returns ctx + logic
 function onResize(fn){let t;window.addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(fn,80)});}
 function bindRanges(ids,fn){ids.forEach(id=>{const el=document.getElementById(id);el.addEventListener('input',fn)});fn()}
 function val(id){const e=document.getElementById(id);return parseFloat(e.value)}
+// "What to notice" is revealed after the first interaction (STYLE_GUIDE §7)
+(function(){function rev(){document.querySelectorAll('.notice.hidden').forEach(n=>n.classList.remove('hidden'))}
+ let armed=false;window.addEventListener('load',()=>setTimeout(()=>{armed=true},50));
+ ['input','change','pointerdown'].forEach(ev=>document.addEventListener(ev,e=>{if(armed&&e.isTrusted)rev()},{capture:true}));})();

@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Decode step roofline</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>One decode step: memory-bound or compute-bound?</h1>
+<div class="try"><h2>Try this</h2><ol><li>Defaults are Llama 3.1 70B in bf16 on one H100 at B = 1, T = 8k. Read the step time (~43 ms) and the capacity warning.</li><li>Drop context T to 128 and drag batch B up until the step flips from memory-bound to compute-bound (the knee on the plot).</li><li>Put T back to 8k and drag B again: it never flips. Then try FP8 KV, more GPUs, or B200.</li></ol></div>
+<div class="card">
+<div class="row">
+<label>Preset<select id="pre"><option value="70">Llama 3.1 70B (L=80, h_kv=8, d_h=128)</option><option value="8">Llama 3.1 8B (L=32, h_kv=8, d_h=128)</option><option value="405">Llama 3.1 405B (L=126, h_kv=8, d_h=128)</option></select></label>
+<label>Accelerator<select id="acc"><option value="h100">H100 SXM (80 GB, 3.35 TB/s)</option><option value="b200">B200 (180 GB, 8 TB/s)</option></select></label>
+<label style="flex:0 1 140px">GPUs (TP, ideal)<select id="g"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
+</div>
+<div class="row">
+<label>Params N: <b id="Nv"></b><input type="range" id="N" min="9" max="12" step="0.001" value="10.849"></label>
+<label>Weights<select id="wb"><option value="2">bf16 (2 B/param)</option><option value="1">FP8 (1 B/param)</option><option value="0.5">FP4 (0.5 B/param)</option></select></label>
+<label>KV cache<select id="kb"><option value="2">bf16 (2 B)</option><option value="1">FP8 (1 B)</option></select></label>
+</div>
+<div class="row">
+<label>Batch B: <b id="Bv"></b><input type="range" id="B" min="0" max="9" step="1" value="0"></label>
+<label>Context T (tokens): <b id="Tv"></b><input type="range" id="T" min="7" max="20" step="1" value="13"></label>
+</div>
+<div class="row">
+<label>Layers L<input type="number" id="L" value="80" min="1"></label>
+<label>KV heads h_kv<input type="number" id="hkv" value="8" min="1"></label>
+<label>Head dim d_h<input type="number" id="dh" value="128" min="1"></label>
+</div></div>
+<div class="card"><table>
+<tr><th>Weight bytes N·b_w</th><td class="num" id="wbytes"></td></tr>
+<tr><th>KV cache B·T·2·L·h_kv·d_h·b_kv</th><td class="num" id="kv"></td></tr>
+<tr><th>Bytes read per step</th><td class="num" id="bytes"></td></tr>
+<tr><th>FLOPs per step ≈ 2·N·B</th><td class="num" id="fl"></td></tr>
+<tr><th>Arithmetic intensity vs ridge point</th><td class="num" id="ai"></td></tr>
+<tr><th>Step time = max(bytes/BW, FLOPs/peak)</th><td class="num big" id="st"></td></tr>
+<tr><th>Per-sequence speed</th><td class="num" id="ps"></td></tr>
+<tr><th>Aggregate throughput (B / step)</th><td class="num big" id="agg"></td></tr>
+<tr><th>Memory needed vs HBM</th><td class="num" id="cap"></td></tr>
+</table>
+<canvas id="cv"></canvas><div class="mut">Aggregate tokens/s vs batch B at the current T (log–log). Blue = memory-bound, orange = compute-bound; dot = your B.</div></div>
+<div class="notice hidden"><h2>What to notice</h2>At small B every step streams all the weights for only 2·N·B FLOPs, so intensity ≈ B/b_w FLOP/byte, far below the H100 ridge (~295 FLOP/byte in bf16). Throughput grows almost linearly with B for free until the knee. Long contexts move the bottleneck to the KV cache, which grows with B·T and is not amortized across the batch: per-token intensity saturates at 2·N / (T · KV bytes per token), so at 8k context a 70B model can never reach the ridge however large B gets. That is why GQA/MLA, FP8 KV, and paged KV management matter (see 6.2 KV-cache math).</div>
+<div class="model"><b>Model.</b> Decode reads every weight once per step plus each sequence's full KV cache; FLOPs ≈ 2·N·B (matmuls only; attention FLOPs 4·L·T·h·d_h per token are ignored, as are activations and kernel overheads, so real step times are higher). Peak dense FLOP/s: H100 989 T (bf16) / 1979 T (FP8; H100 has no FP4 tensor cores, so FP4 weights use the FP8 rate); B200 2.25 P (bf16) / 4.5 P (FP8) / 9 P (FP4). TP across g GPUs is modeled as ideal g× bandwidth, peak, and capacity (no communication cost).</div>
+</div>
+<script src="../../assets/common.js"></script><script>
+const ACC={h100:{bw:3.35e12,cap:80e9,pk:{2:989e12,1:1979e12,0.5:1979e12}},b200:{bw:8e12,cap:180e9,pk:{2:2.25e15,1:4.5e15,0.5:9e15}}};
+const PRE={70:[10.849,80,8,128],8:[9.906,32,8,128],405:[11.607,126,8,128]};
+function model(B,T){const N=10**val('N'),bw_=parseFloat($('#wb').value),bk=parseFloat($('#kb').value),g=parseInt($('#g').value),A=ACC[$('#acc').value];
+ const L=val('L'),hk=val('hkv'),dh=val('dh');const W=N*bw_,KV=B*T*2*L*hk*dh*bk,by=W+KV,F=2*N*B;
+ const BW=A.bw*g,PK=A.pk[bw_]*g;const tm=by/BW,tc=F/PK;return{N,W,KV,by,F,BW,PK,tm,tc,st:Math.max(tm,tc),cap:A.cap*g,g}}
+function upd(){const B=2**val('B'),T=2**val('T');const m=model(B,T);
+ $('#Nv').textContent=fmt(m.N,1);$('#Bv').textContent=B;$('#Tv').textContent=T.toLocaleString();
+ $('#wbytes').textContent=(m.W/1e9).toFixed(1)+' GB';$('#kv').textContent=(m.KV/1e9).toFixed(2)+' GB';$('#bytes').textContent=(m.by/1e9).toFixed(1)+' GB';
+ $('#fl').textContent=sci(m.F)+' FLOP';const ai=m.F/m.by,ridge=m.PK/m.BW;
+ $('#ai').innerHTML=ai.toFixed(1)+' vs '+ridge.toFixed(0)+' FLOP/B → '+(m.tm>=m.tc?'<span style="color:#4C72B0;font-weight:700">memory-bound</span>':'<span style="color:#DD8452;font-weight:700">compute-bound</span>');
+ $('#st').textContent=(m.st*1e3).toFixed(2)+' ms';$('#ps').textContent=(1/m.st).toFixed(1)+' tok/s';$('#agg').textContent=fmt(B/m.st,1)+' tok/s';
+ const need=Math.ceil(m.by/(m.cap/m.g));$('#cap').innerHTML=(m.by/1e9).toFixed(0)+' / '+(m.cap/1e9).toFixed(0)+' GB'+(m.by>m.cap?` <span class="warn">does not fit: needs ≥ ${need} GPUs</span>`:'');
+ draw(T,B);}
+function draw(T,Bc){const cv=$('#cv');const{ctx,w,h}=setupCanvas(cv,0.45);ctx.clearRect(0,0,w,h);
+ const pts=[];for(let i=0;i<=90;i++){const B=2**(i/10);const m=model(B,T);pts.push([B,B/m.st,m.tm>=m.tc])}
+ const ys=pts.map(p=>p[1]);let ylo=Math.floor(Math.log10(Math.min(...ys))),yhi=Math.ceil(Math.log10(Math.max(...ys)));if(yhi===ylo)yhi++;
+ const pl=46,pr=10,pt=10,pb=30;const X=B=>pl+(w-pl-pr)*Math.log2(B)/9,Y=v=>h-pb-(h-pt-pb)*(Math.log10(v)-ylo)/(yhi-ylo);
+ ctx.font='11px Inter,"DejaVu Sans",sans-serif';ctx.fillStyle='#4D4D4D';ctx.strokeStyle='#e6e6e6';ctx.textAlign='right';
+ for(let e=ylo;e<=yhi;e++){ctx.beginPath();ctx.moveTo(pl,Y(10**e));ctx.lineTo(w-pr,Y(10**e));ctx.stroke();ctx.fillText(fmt(10**e,0),pl-4,Y(10**e)+4)}
+ ctx.textAlign='center';for(let k=0;k<=9;k++){ctx.fillText(2**k,X(2**k),h-pb+14)}ctx.fillText('batch B',w/2,h-3);
+ ctx.lineWidth=2.5;for(let i=1;i<pts.length;i++){ctx.strokeStyle=pts[i][2]?'#4C72B0':'#DD8452';ctx.beginPath();ctx.moveTo(X(pts[i-1][0]),Y(pts[i-1][1]));ctx.lineTo(X(pts[i][0]),Y(pts[i][1]));ctx.stroke()}
+ const m=model(Bc,T);ctx.fillStyle='#262626';ctx.beginPath();ctx.arc(X(Bc),Y(Bc/m.st),5,0,7);ctx.fill();}
+$('#pre').addEventListener('input',()=>{const p=PRE[$('#pre').value];$('#N').value=p[0];$('#L').value=p[1];$('#hkv').value=p[2];$('#dh').value=p[3];upd()});
+['acc','g','wb','kb','L','hkv','dh'].forEach(i=>$('#'+i).addEventListener('input',upd));
+bindRanges(['N','B','T'],upd);onResize(upd);
+</script></body></html>
