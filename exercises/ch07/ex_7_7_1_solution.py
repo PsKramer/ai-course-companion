@@ -36,7 +36,8 @@ def systolic_ws(X, W):
 
 def tiled_cycles(M, K, N, P, load_overlap=True):
     """Cycles for an M x K by K x N matmul on one P x P array: one pass of M + 2P - 2 cycles per
-    weight tile, plus P cycles to load each tile unless loading is double-buffered."""
+    weight tile (no overlap of one tile's drain with the next tile's fill), plus P cycles to load
+    each tile unless weight loading is double-buffered."""
     tiles = int(np.ceil(K / P) * np.ceil(N / P))
     per = M + 2 * P - 2 + (0 if load_overlap else P)
     cyc = tiles * per
@@ -51,8 +52,8 @@ if __name__ == "__main__":
               f"(M + 2P - 2 = {M + 2*P - 2}), utilization {util:.1%} (M/(M+2P-2) = {M/(M+2*P-2):.1%})")
 
     print("\nCourse-8B FFN up+gate (K = 4,096, N = 28,672) on one array, weights double-buffered:")
-    print("    M tokens    P=128 util   P=256 util   time at 940 MHz, P=256")
+    print("    M tokens    P=128 util   P=256 util   time at 1 GHz, P=256")
     for M in (1, 64, 512, 4096):
         _, u128 = tiled_cycles(M, 4096, 28672, 128)
         c256, u256 = tiled_cycles(M, 4096, 28672, 256)
-        print(f"   {M:8d}     {u128:7.1%}      {u256:7.1%}      {c256/940e6*1e3:8.3f} ms")
+        print(f"   {M:8d}     {u128:7.1%}      {u256:7.1%}      {c256/1e9*1e3:8.3f} ms")
