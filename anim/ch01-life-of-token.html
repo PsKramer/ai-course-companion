@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: Life of a token</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>Life of a token</h1>
+<video src="ch01-life-of-token.mp4" autoplay loop muted playsinline controls poster=""></video>
+<p class="model"><b>Watch for:</b> prefill sends all 5 prompt tokens through the model in one pass and writes 5 KV entries at once; each decode step feeds only the last token, appends exactly one KV slot (128 KiB for Course-8B), and still streams all 16.06 GB of bf16 weights from HBM. The KV term is tiny here (1.7 MB) but reaches 1.07 GB per sequence at 8k context. <a href="ch01-life-of-token.gif">GIF version</a></p>
+</div></body></html>
