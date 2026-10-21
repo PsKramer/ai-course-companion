@@ -1,0 +1,6 @@
+tokens   53  trainable targets    4  (8%)
+tokens  294  trainable targets  247  (84%)
+token   -mean: loss 6.049; weight per token: short reply 0.0040, long reply 0.0040
+sequence-mean: loss 5.992; weight per token: short reply 0.1250, long reply 0.0020
+without the mask, 27% of target tokens would be prompt/template tokens
+OK

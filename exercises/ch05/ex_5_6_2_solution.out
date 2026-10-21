@@ -1,0 +1,7 @@
+  k   pass@k   maj@k   verifier@k (90% accurate)
+  1   0.464    0.464   0.464
+  4   0.732    0.593   0.678
+ 16   0.877    0.595   0.743
+ 64   0.940    0.593   0.757
+problems where the right answer is the most likely single answer: 59% (majority voting converges to this)
+OK

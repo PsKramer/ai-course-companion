@@ -1,0 +1,9 @@
+GRPO (std-scaled): pass@1 step 0: 0.127  step 50: 0.680  step 100: 0.752  step 150: 0.811  step 200: 0.854 | zero-advantage groups: first batch 55%, last batch 69%
+Dr. GRPO (no std): pass@1 step 0: 0.127  step 50: 0.655  step 100: 0.730  step 150: 0.778  step 200: 0.827 | zero-advantage groups: first batch 55%, last batch 70%
+std-scaling weight 1/std for a binary reward with group pass rate q:
+  q = 0.0625: std 0.242  weight 4.13
+  q = 0.2500: std 0.433  weight 2.31
+  q = 0.5000: std 0.500  weight 2.00
+  q = 0.7500: std 0.433  weight 2.31
+  q = 0.9375: std 0.242  weight 4.13
+OK

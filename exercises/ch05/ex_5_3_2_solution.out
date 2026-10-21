@@ -1,0 +1,7 @@
+21860 preference pairs
+step     0  loss 0.6931  TV(pi, pi*) 0.529  E[r] pi +0.187  pi* +1.317  ref +0.187
+step   300  loss 0.5808  TV(pi, pi*) 0.199  E[r] pi +0.886  pi* +1.317  ref +0.187
+step  3000  loss 0.5728  TV(pi, pi*) 0.095  E[r] pi +1.097  pi* +1.317  ref +0.187
+mean correlation(implicit reward, true r) on seen responses: 0.998
+mass on never-seen worst responses: ref 0.1965, pi* 0.0059, DPO 0.0936
+OK

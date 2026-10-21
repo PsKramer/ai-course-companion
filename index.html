@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Engineering, Systems First — interactive companion</title><link rel="stylesheet" href="assets/style.css"></head>
 <body><div class="wrap"><h1>AI Engineering, Systems First: interactive companion</h1>
-<p class="mut">Widgets and animations embedded in the course pages. Each widget lives at <code>/w/&lt;id&gt;/</code>.</p>
+<p class="mut">Widgets and animations embedded in the course pages. Each widget lives at <code>/w/&lt;id&gt;/</code>. Code exercises (starters and solutions): <a href="exercises/">exercises/</a>.</p>
 <div id="list" class="grid"></div></div>
 <script src="widgets.js"></script><script>
 document.getElementById('list').innerHTML=WIDGETS.map(w=>`<div class="card"><a href="w/${w.id}/"><b>${w.title}</b></a><div class="mut">${w.id}</div><div>${w.desc}</div></div>`).join('')+

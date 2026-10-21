@@ -1,0 +1,6 @@
+student            P(coherent answer)  P(mixed 0,4 or 3,1)  KL(p||q)  KL(q||p)
+forward KL (SFT)            0.432              0.432       0.693     1.662
+reverse KL (on-policy)      0.925              0.015       3.909     0.728
+reverse-KL student: P(A) = 0.000, P(B) = 0.925 (it commits to one answer)
+teacher                     0.900              0.006
+OK
