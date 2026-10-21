@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mixture-of-experts router</title><link rel="stylesheet" href="../../assets/style.css">
+<style>#tok th{width:auto}#tok td,#tok th{white-space:nowrap;overflow-wrap:normal}.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.btns button{font:inherit;font-size:13px;padding:7px 12px;border-radius:8px;border:0;background:#262626;color:#fff;cursor:pointer}.btns button.alt{background:#fff;color:#262626;border:1.5px solid #262626}</style></head><body><div class="wrap">
+<h1>Mixture-of-experts (MoE) router: who gets the tokens?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-MoE (48 layers, 128 routed experts plus 1 shared expert, top-8 routing) with a 512-token batch and balancing off. Press "Step" a few times and read max/mean load and idle experts.</li>
+<li>Switch balancing to "bias (auxiliary-loss-free)" and press "Run 50 steps". Watch the smoothed max/mean fall; tap through a few tokens and see that their gates still come from the affinities alone.</li>
+<li>Move top-<span class="nt">k</span> to 2 and to 16 and read active parameters and FLOPs per token.</li></ol></div>
+<div class="card">
+<div class="row"><label>Batch<select id="bs"><option value="64">64 tokens</option><option value="512" selected>512 tokens</option><option value="4096">4,096 tokens</option></select></label>
+<label><span class="lt">Routed experts <span class="nt">E</span></span><select id="E"><option>8</option><option>64</option><option selected>128</option><option>256</option></select></label>
+<label><span class="lt">Top-<span class="nt">k</span> (routed experts per token): </span><b id="kv"></b><input type="range" id="k" min="1" max="16" step="1" value="8"></label></div>
+<div class="row"><label>Balancing<select id="mode"><option value="off">off</option><option value="aux">auxiliary loss (α = 0.01)</option><option value="bias">bias (auxiliary-loss-free)</option></select></label>
+<label><span class="lt">Bias update rate <span class="nt">γ</span></span><select id="g"><option value="0.001">0.001 (DeepSeek-V3; needs hundreds of steps)</option><option value="0.01" selected>0.01 (fast, for this demo)</option></select></label>
+<label class="chk"><input type="checkbox" id="sh" checked> Shared expert (always on)</label></div>
+<div class="btns"><button id="b1">Step</button><button id="b50">Run 50 steps</button><button id="rs" class="alt">New random seed</button><button id="nt" class="alt">Next token</button></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><table>
+<tr><th>Step</th><td class="num" id="stp"></td></tr>
+<tr><th>Max / mean load, this batch</th><td class="num big" id="mm"></td></tr>
+<tr><th>Max / mean load, smoothed over the last 10 batches</th><td class="num" id="mms"></td></tr>
+<tr><th>Experts with zero tokens this batch</th><td class="num" id="z"></td></tr>
+<tr><th>Active parameters per token (Course-MoE, 48 layers)</th><td class="num big" id="act"></td></tr>
+<tr><th>Forward FLOPs per token, 2 × active</th><td class="num" id="fl"></td></tr>
+<tr><th>Total parameters (all stored)</th><td class="num" id="tot"></td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="card"><div class="mut" id="tokh"></div><table id="tok"></table></div>
+<div class="notice hidden"><h2>What to notice</h2>Without balancing, a few experts take several times the mean load while others sit idle. The bias shifts which experts get selected until loads even out, but gates are still computed from the affinities alone, so a token's mixing weights are not distorted by the bias. Active parameters, and so FLOPs per token, grow with k; total parameters do not change.</div>
+<div class="model"><b>Model</b> (as in 3.5). Each token is a 64-number feature vector drawn around one of 6 cluster centres; a fixed random router matrix (with a few experts favoured a priori, to create imbalance) gives sigmoid affinities s. Selection uses s + bias; gates use s only, normalized over the k chosen experts (Step 5). Bias update after each batch: b<sub>i</sub> ← b<sub>i</sub> − γ·sign(load<sub>i</sub> − mean). Auxiliary loss: one gradient step per batch on α·E·Σ f<sub>i</sub>P<sub>i</sub> applied to the router matrix. Parameter counts are Course-MoE's (Step 3): per layer attention 37.75 million, router 4096·E, each expert 3 × 4096 × 1536 = 18.87 million; active adds the unembedding (525 million), not the input lookup. A single 512-token batch has only 32 slots per expert at top-8, so its max/mean never gets much below about 1.5 from sampling noise alone; the smoothed value shows the trend.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),F='Inter,"DejaVu Sans",sans-serif';let seed=1,st=null,last=null,nstep=0,ti=0,busy=false;
+const B=()=>+$('#bs').value,K=()=>val('k');
+function reset(){st=MOE.make(+$('#E').value,seed);nstep=0;ti=0;last=MOE.step(st,B(),K(),'off',0,0);st.hist=[last.R.cnt];render()}
+function doStep(){nstep++;last=MOE.step(st,B(),K(),$('#mode').value,+$('#g').value,0.01);ti=0;render()}
+function render(){const k=K(),sh=$('#sh').checked,E=st.E;$('#kv').textContent=k;const p=MOE.params(k,sh,E);
+ const s=last.st,sm=MOE.smooth(st);$('#stp').textContent=nstep;$('#mm').textContent=s.ratio.toFixed(2)+'×';$('#mms').textContent=sm.ratio.toFixed(2)+'×';$('#z').textContent=`${s.zero} of ${E}`;
+ $('#act').textContent=(p.act/1e9).toFixed(1)+' billion';$('#fl').textContent=(p.flops/1e9).toFixed(1)+' GFLOPs';$('#tot').textContent=(p.tot/1e9).toFixed(1)+' billion';
+ $('#warn').textContent=E!==128?'Parameter counts use E = '+E+' experts per layer with Course-MoE\'s other dimensions (Course-MoE itself has 128).':'';
+ const R=MOE.route(st,[last.X[ti]],k,$('#mode').value==='bias').out[0];
+ $('#tokh').textContent=`Token ${ti+1} of ${last.X.length} in this batch: its ${k} selected experts${$('#mode').value==='bias'?' (selected by affinity + bias)':''}`;
+ $('#tok').innerHTML='<tr><th>Expert</th><th class="num">Affinity s</th><th class="num">Bias</th><th class="num">Gate = s ÷ Σs</th></tr>'+R.idx.map((e,j)=>`<tr><td>#${e}</td><td class="num">${R.s[e].toFixed(3)}</td><td class="num">${st.bias[e].toFixed(3)}</td><td class="num">${R.g[j].toFixed(3)}</td></tr>`).join('');
+ draw(last.R.cnt,s.mean)}
+function draw(cnt,mean){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.7:0.32);const l=36,r=8,t=12,b=26,E=cnt.length;const mx=Math.max(...cnt,mean*2)*1.08;
+ ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);const bw=(w-l-r)/E,Y=v=>t+(h-t-b)*(1-v/mx);ctx.font='11px '+F;
+ ctx.fillStyle='#4D4D4D';ctx.textAlign='right';[0,Math.round(mean),Math.round(mean*2)].forEach(v=>ctx.fillText(v,l-4,Y(v)+4));
+ for(let e=0;e<E;e++){ctx.fillStyle=cnt[e]>1.5*mean?'#C44E52':cnt[e]===0?'#9a9a9a':'#4C72B0';const hh=Math.max(cnt[e]===0?2:0,(h-t-b)*cnt[e]/mx);ctx.fillRect(l+e*bw+(bw>3?0.5:0),h-b-hh,Math.max(0.8,bw-(bw>3?1:0)),hh)}
+ ctx.setLineDash([5,4]);ctx.strokeStyle='#262626';ctx.beginPath();ctx.moveTo(l,Y(mean));ctx.lineTo(w-r,Y(mean));ctx.stroke();ctx.setLineDash([]);
+ ctx.fillStyle='#4D4D4D';ctx.textAlign='center';ctx.fillText(`expert 0 … ${E-1}`,(l+w)/2,h-8);
+ $('#cap').textContent=`Tokens routed to each expert in the latest batch (${B().toLocaleString()} tokens × top-${K()} = ${(B()*K()).toLocaleString()} slots). Dashed line: mean ${mean.toFixed(0)}. Red: above 1.5 × mean. Gray: no tokens.`}
+$('#b1').onclick=()=>{if(!busy)doStep()};
+$('#b50').onclick=()=>{if(busy)return;busy=true;let n=0;(function go(){for(let i=0;i<5&&n<50;i++,n++)doStep();if(n<50)setTimeout(go,30);else busy=false})()};
+$('#rs').onclick=()=>{seed++;reset()};$('#nt').onclick=()=>{ti=(ti+1)%last.X.length;render()};
+['bs','E'].forEach(id=>$('#'+id).addEventListener('change',reset));['mode','g','sh'].forEach(id=>$('#'+id).addEventListener('change',render));
+applyHash();$('#k').addEventListener('input',render);reset();
+(function(){const h=new URLSearchParams(location.hash.slice(1));const n=+(h.get('steps')||0);for(let i=0;i<n;i++)doStep()})();onResize(render);
+</script></body></html>

@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RoPE rotation</title><link rel="stylesheet" href="../../assets/style.css">
+<style>.dials{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}@media(max-width:520px){.dials{grid-template-columns:repeat(3,1fr)}}.dials div{text-align:center;font-size:11px;color:#4D4D4D}.dials canvas{width:100%;max-width:130px}</style></head><body><div class="wrap">
+<h1>Rotary position embedding (RoPE): the clocks inside attention</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Set the base θ to 10,000 and drag the query position m from 0 to 200 (key position n stays 0). Watch the dials turn and the score curve oscillate and sag.</li>
+<li>Switch θ to 500,000 (Course-8B): the slow dials barely move, and the score curve decays more slowly.</li>
+<li>Set the context to 32,768 tokens (training length 8,192) and push m past 8,192: the slow dials turn red. Then turn on position interpolation.</li></ol></div>
+<div class="card">
+<div class="row"><label><span class="lt">Query position <span class="nt">m</span>: </span><b id="mv"></b><input type="range" id="m" min="0" max="1000" step="1" value="200"></label>
+<label><span class="lt">Key position <span class="nt">n</span>: </span><b id="nv"></b><input type="range" id="n" min="0" max="200" step="1" value="0"></label></div>
+<div class="row"><label><span class="lt">Base <span class="nt">θ</span></span><select id="th"><option value="10000">10,000 (2021 default)</option><option value="500000" selected>500,000 (Course-8B)</option><option value="1000000">1,000,000</option></select></label>
+<label>Training length<select id="tt"><option value="4096">4,096 tokens</option><option value="8192" selected>8,192 tokens</option><option value="32768">32,768 tokens</option></select></label>
+<label>Context length<select id="ctx"><option value="8192" selected>8,192 tokens</option><option value="32768">32,768 tokens</option><option value="131072">131,072 tokens</option></select></label></div>
+<div class="row"><label class="chk"><input type="checkbox" id="pi"> Position interpolation (divide positions by s = context ÷ training length)</label></div>
+<div class="mut">The query slider is linear from 0 to 200, then logarithmic up to the context length.</div></div>
+<div class="card"><div class="mut">Rotation angle (m − n)·ω<sub>i</sub> for 8 of the 64 pairs of a 128-dimension head (ω<sub>i</sub> = θ<sup>−2i/128</sup> radians per position). Shaded arc: angles reached within the training length. Needle red: an angle the model never saw in training.</div><div class="dials" id="dials"></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><table>
+<tr><th>Distance m − n (after interpolation, if on)</th><td class="num big" id="d"></td></tr>
+<tr><th>Score q·k for the same unit vector at both positions (1.00 at distance 0)</th><td class="num" id="sc"></td></tr>
+<tr><th>Wavelength of the fastest pair, i = 0</th><td class="num" id="l0"></td></tr>
+<tr><th>Wavelength of the slowest pair, i = 63</th><td class="num" id="l63"></td></tr>
+<tr><th>Pairs that never complete a turn within the training length</th><td class="num" id="unt"></td></tr>
+<tr><th>Pairs at an untrained angle right now</th><td class="num" id="red"></td></tr>
+</table></div>
+<div class="notice hidden"><h2>What to notice</h2>The score oscillates and its envelope sags as distance grows, because the fast pairs fall out of phase; with a larger base θ more pairs stay in phase, so it sags more slowly. Pairs whose wavelength is longer than the training length only ever turn part of the way in training; past that length their angles are new to the model. Interpolation squeezes positions back into the trained range, at the price of finer spacing for the fast pairs.</div>
+<div class="model"><b>Model</b> (as in 3.3). Head dimension d<sub>h</sub> = 128, so 64 pairs; pair i turns by ω<sub>i</sub> = θ<sup>−2i/128</sup> radians per position; wavelength 2π/ω<sub>i</sub> positions. The score uses one fixed random unit vector (seeded) as both query and key, so it is Σ<sub>i</sub> (size of pair i)² · cos((m − n)·ω<sub>i</sub>), the part of q·k that RoPE controls. With interpolation, m and n are divided by s before rotating.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),PAIRS=[0,8,16,24,32,35,48,63],F='Inter,"DejaVu Sans",sans-serif';
+PAIRS.forEach(i=>{const d=document.createElement('div');d.innerHTML=`<canvas id="dl${i}"></canvas><div id="dt${i}"></div>`;$('#dials').appendChild(d)});
+const fmtN=x=>x>=1e6?(x/1e6).toFixed(2)+' million':x>=100?Math.round(x).toLocaleString():x.toFixed(1);
+function mpos(ctx){const v=val('m');return v<=400?Math.round(v/2):Math.round(200*Math.pow(ctx/200,(v-400)/600))}
+function upd(){const th=+$('#th').value,T=+$('#tt').value,ctx=+$('#ctx').value,pi=$('#pi').checked,s=pi?Math.max(1,ctx/T):1;
+ const m=Math.min(mpos(ctx),ctx-1),n=val('n'),d=(m-n)/s;$('#mv').textContent=m.toLocaleString();$('#nv').textContent=n;
+ let red=0;PAIRS.forEach(i=>{const w=RP.omega(th,i),ang=d*w,tr=T*w,bad=Math.abs(d)>T;if(bad)red++;dial($('#dl'+i),ang,tr,bad);
+  $('#dt'+i).innerHTML=`pair ${i}<br>λ = ${fmtN(RP.lambda(th,i))} pos.<br>${(((ang*180/Math.PI)%360+360)%360).toFixed(0)}°`});
+ let redAll=0;for(let i=0;i<64;i++)if(Math.abs(d)>T&&T*RP.omega(th,i)<2*Math.PI)redAll++;
+ $('#d').textContent=(pi&&s>1?d.toFixed(1):d.toLocaleString())+' positions'+(pi&&s>1?` (= ${(m-n).toLocaleString()} ÷ ${s})`:'');
+ $('#sc').textContent=RP.score(th,d).toFixed(2);$('#l0').textContent=fmtN(RP.lambda(th,0))+' positions';$('#l63').textContent=fmtN(RP.lambda(th,63))+' positions';
+ const u=RP.untrained(th,T);$('#unt').textContent=u.count?`${u.count} of 64 (pairs ${u.first}–63)`:'none';$('#red').textContent=redAll?`${redAll} of 64`:'none';
+ draw(th,ctx,T,s,d)}
+function dial(c,ang,tr,bad){const{ctx,w,h}=setupCanvas(c,1);const cx=w/2,cy=h/2,r=w*0.4;ctx.clearRect(0,0,w,h);
+ ctx.fillStyle='#E4DACA';ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
+ ctx.fillStyle='#A9C1E0';ctx.beginPath();ctx.moveTo(cx,cy);if(tr>=2*Math.PI)ctx.arc(cx,cy,r,0,7);else ctx.arc(cx,cy,r,0,-tr,true);ctx.closePath();ctx.fill();
+ ctx.strokeStyle='#9a9a9a';ctx.lineWidth=1;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.stroke();
+ ctx.strokeStyle=bad&&tr<2*Math.PI?'#C44E52':'#262626';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*Math.cos(-ang),cy+r*Math.sin(-ang));ctx.stroke();
+ ctx.fillStyle='#262626';ctx.beginPath();ctx.arc(cx,cy,3,0,7);ctx.fill()}
+function draw(th,ctxL,T,s,d){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.75:0.38);const l=40,r=12,t=14,b=30;ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const X=x=>l+(w-l-r)*Math.log10(1+x)/Math.log10(1+ctxL),Y=v=>t+(h-t-b)*(1-(v+0.4)/1.4);
+ ctx.font='11px '+F;ctx.strokeStyle='#E4DACA';ctx.fillStyle='#4D4D4D';[-0.4,0,0.5,1].forEach(v=>{ctx.beginPath();ctx.moveTo(l,Y(v));ctx.lineTo(w-r,Y(v));ctx.stroke();ctx.textAlign='right';ctx.fillText(v.toFixed(1),l-4,Y(v)+4)});
+ ctx.textAlign='center';[0,10,100,1000,10000,100000].filter(x=>x<=ctxL).forEach(x=>ctx.fillText(x.toLocaleString(),X(x),h-14));ctx.fillText('distance m − n in positions (log scale)',(l+w)/2,h-1);
+ const xt=X(T*s);ctx.fillStyle='rgba(169,193,224,0.25)';ctx.fillRect(l,t,Math.min(xt,w-r)-l,h-t-b);ctx.fillStyle='#4C72B0';ctx.textAlign='left';ctx.fillText(s>1?'trained range (stretched by interpolation)':'trained range',l+4,t+10);
+ const draw1=(thv,col,lw)=>{ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.beginPath();for(let k=0;k<=900;k++){const x=Math.pow(1+ctxL,k/900)-1;const v=RP.score(thv,x/s);k?ctx.lineTo(X(x),Y(v)):ctx.moveTo(X(x),Y(v))}ctx.stroke()};
+ draw1(th,'#8172B3',2);const dd=d*s;ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(X(Math.max(0,dd)),Y(RP.score(th,d)),6,0,7);ctx.fill();
+ $('#cap').textContent=`Score against distance for θ = ${th.toLocaleString()}${s>1?', positions divided by '+s:''}. Orange dot: your m − n.`}
+['th','tt','ctx','pi'].forEach(id=>$('#'+id).addEventListener('change',upd));bindRanges(['m','n'],upd);onResize(upd);
+</script></body></html>

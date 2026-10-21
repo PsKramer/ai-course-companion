@@ -30,3 +30,4 @@ label b,label .v{text-transform:none;letter-spacing:0}
 label select,label input[type=number]{text-transform:none;letter-spacing:0;font-weight:400}
 th{font-weight:700}
 .nt{text-transform:none;letter-spacing:0}
+.hidden{display:none}label.chk{flex-direction:row;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:13px}label.chk input{width:auto;margin:0}

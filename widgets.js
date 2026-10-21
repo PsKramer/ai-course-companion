@@ -9,6 +9,9 @@ const WIDGETS=[
 {id:'ch08-efficiency-stack',title:'The efficiency stack',desc:'Ch8 (8.6): weights format, KV format, drafting and hybrid layers, lever by lever.'},
 {id:'ch06-kv-calc',title:'KV-cache calculator: how many users fit?',desc:'Ch6 (6.2): bytes per token for MHA/GQA/MQA/MLA/sliding window, HBM budget, users, crossover.'},
 {id:'ch06-specdec-sim',title:'Speculative decoding: when does it pay?',desc:'Ch6 (6.6): tokens per pass, verify cost, speedup vs batch size and the crossover.'},
+{id:'ch03-attention-heatmap',title:'Attention heatmap: who looks at whom',desc:'Ch3 (3.2): real GPT-2 small attention by layer and head, causal mask on/off, grouped-query probe.'},
+{id:'ch03-rope-rotation',title:'RoPE: the clocks inside attention',desc:'Ch3 (3.3): rotation dials per pair, score vs distance, base θ, training length and position interpolation.'},
+{id:'ch03-moe-router',title:'Mixture-of-experts router',desc:'Ch3 (3.5): load per expert, auxiliary-loss vs bias balancing, active vs total parameters.'},
 {id:'ch04-compute-budget',title:'Compute budget: how big a model for my FLOPs?',desc:'Ch4 (4.2): isoFLOP curves, compute-optimal size, and lifetime (training + serving) optimum.'},
 {id:'ch04-lr-schedule',title:'Learning-rate schedules: cosine vs WSD',desc:'Ch4 (4.3): warmup, cosine floor, WSD decay and decay branches.'},
 {id:'ch04-parallelism-planner',title:'Parallelism planner',desc:'Ch4 (4.5): memory, NVLink/InfiniBand traffic, bubble and step time for DP/ZeRO/FSDP/HSDP, TP and PP.'}];

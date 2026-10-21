@@ -1,0 +1,73 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Attention heatmap</title><link rel="stylesheet" href="../../assets/style.css">
+<style>#cv,#bv{max-width:600px;display:block;margin:0 auto}.toks{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}.toks button{font:inherit;font-size:13px;padding:4px 7px;border-radius:6px;border:1.5px solid #4C72B0;background:#fff;color:#262626;cursor:pointer;white-space:pre}
+.toks button.on{background:#4C72B0;color:#fff}.heads{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin:6px 0}.heads button{font:inherit;font-size:12px;padding:6px 0;border-radius:6px;cursor:pointer;border:2px solid transparent;color:#262626}
+.heads button.on{border-color:#262626;font-weight:700}.grp{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}@media(min-width:700px){.grp{grid-template-columns:repeat(4,1fr)}}.grp div{font-size:12px;text-align:center}</style></head><body><div class="wrap">
+<h1>Attention heatmap: who looks at whom</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Keep the sentence "The cat sat on the mat because it was tired" and tap the token "it". Look at layer 1, then layer 5 (head 3): the weight moves onto "cat".</li>
+<li>Turn the causal mask off and on: with it off, early tokens put weight on later tokens, which the model never saw in training.</li>
+<li>Turn on "grouped-query attention (GQA) probe" and "group view": four heads share one set of keys but still attend differently, because their queries differ.</li></ol></div>
+<div class="card">
+<div class="row"><label>Sentence<select id="pre"></select></label>
+<label><span class="lt">Layer: </span><b id="lv"></b><input type="range" id="l" min="1" max="12" step="1" value="1"></label></div>
+<div class="mut">Tap a token to make it the query row:</div><div class="toks" id="toks"></div>
+<div class="mut">Heads in this layer (shade = how much weight the selected query puts on its single top token; outline = key-value group in the GQA probe):</div><div class="heads" id="heads"></div>
+<div class="row"><label class="chk"><input type="checkbox" id="mask" checked> Causal mask (on in training)</label>
+<label class="chk"><input type="checkbox" id="gqa"> GQA probe: 3 key-value heads, 4 query heads each</label>
+<label class="chk"><input type="checkbox" id="grp"> Group view: the 4 heads of the selected head's group</label></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div><div id="bars"></div><canvas id="bv"></canvas></div>
+<div class="card hidden" id="gcard"><div class="grp" id="gwrap"></div></div>
+<div class="card"><table>
+<tr><th>Query token (selected row)</th><td class="num" id="q"></td></tr>
+<tr><th>Top 3 attended tokens</th><td class="num" id="top"></td></tr>
+<tr><th>Row sum (softmax weights)</th><td class="num" id="sum"></td></tr>
+<tr><th>Entropy of the row (0 bits = all weight on one token)</th><td class="num" id="ent"></td></tr>
+<tr><th>Tapped cell</th><td class="num" id="cell">tap a cell</td></tr>
+<tr><th>This model: query heads / key-value heads per layer</th><td class="num" id="heads2"></td></tr>
+<tr><th>Course-8B key-value (KV) cache per token, GQA (8 KV heads), as in 3.2</th><td class="num">2 × 32 layers × 8 × 128 × 2 bytes = 131,072 bytes = 128 KiB</td></tr>
+<tr><th>Same with multi-head attention (32 KV heads)</th><td class="num">524,288 bytes = 512 KiB</td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Early layers spread weight over nearby tokens; by the middle layers some heads lock onto the word "it" refers to ("cat", 0.84 in layer 5, head 3), and in the repeated-phrase sentence a layer-9 head jumps to the token that followed the earlier copy. Each row is a softmax, so its weights sum to 1. Without the mask the rows change, because the scores for future tokens were never trained. Heads that share keys still differ, because each has its own query.</div>
+<div class="model"><b>Data</b>. Real attention computed on a CPU with NumPy from GPT-2 small (124 million parameters, 12 layers, 12 heads per layer, head dimension 64; OpenAI, MIT license), not from Course-8B. Each cell is softmax(q·k / √64) over the row; scores for future tokens were computed without the mask so the "mask off" view can be shown. GPT-2 uses multi-head attention (one key-value head per query head). The GQA probe mean-pools the keys of each group of 4 heads (the conversion recipe of Ainslie et al., 2023, without the extra training that recipe adds) and scores them against each head's own query; it shows the shape of the idea, not a trained GQA model.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="data.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),bv=$('#bv');let qi=7,head=0,cellTxt='tap a cell';const F='Inter,"DejaVu Sans",sans-serif';
+ATT.presets.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.text.replace(/\n\s*/g,' ⏎ ');$('#pre').appendChild(o)});
+const P=()=>ATT.presets[+$('#pre').value],L=()=>val('l')-1,S=(h)=>P()[$('#gqa').checked?'gqa':'scores'][L()][h];
+const show=t=>t.replace(/\n/g,'⏎').replace(/^ /,'·');
+const heat=v=>{if(v===null)return null;const a=Math.pow(v,0.6);return `rgb(${Math.round(251-(251-76)*a)},${Math.round(247-(247-114)*a)},${Math.round(239-(239-176)*a)})`};
+const GC=['#DD8452','#55A868','#8172B3'];
+function drawMat(c,M,toks,sel,small){const T=toks.length;const{ctx,w,h}=setupCanvas(c,1);const pad=small?6:Math.min(90,w*0.24),cs=(w-pad-6)/T;
+ ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ for(let i=0;i<T;i++)for(let j=0;j<T;j++){const x=pad+j*cs,y=pad+i*cs,v=M[i][j];
+  if(v===null){ctx.fillStyle='#E4DACA';ctx.fillRect(x,y,cs-1,cs-1);ctx.strokeStyle='#C9BFAE';ctx.beginPath();ctx.moveTo(x,y+cs-1);ctx.lineTo(x+cs-1,y);ctx.stroke()}
+  else{ctx.fillStyle=heat(v);ctx.fillRect(x,y,cs-1,cs-1);if(!small&&cs>34){ctx.fillStyle=v>0.45?'#fff':'#4D4D4D';ctx.font='10px '+F;ctx.textAlign='center';ctx.fillText(v.toFixed(2),x+cs/2,y+cs/2+3)}}}
+ ctx.strokeStyle='#DD8452';ctx.lineWidth=2.5;ctx.strokeRect(pad-1,pad+sel*cs-1,T*cs+1,cs+1);
+ if(!small){ctx.fillStyle='#262626';ctx.font=(cs<22?'10px ':'12px ')+F;ctx.textAlign='right';toks.forEach((t,i)=>ctx.fillText(show(t).slice(0,10),pad-5,pad+i*cs+cs/2+4));
+  toks.forEach((t,j)=>{ctx.save();ctx.translate(pad+j*cs+cs/2+3,pad-5);ctx.rotate(-Math.PI/4);ctx.textAlign='left';ctx.fillText(show(t).slice(0,10),0,0);ctx.restore()})}
+ return{pad,cs,T}}
+let geo=null;
+function upd(){const p=P(),T=p.tokens.length;if(qi>=T)qi=T-1;const mask=$('#mask').checked,g=$('#gqa').checked;$('#lv').textContent=val('l')+' of 12';
+ $('#toks').innerHTML='';p.tokens.forEach((t,i)=>{const b=document.createElement('button');b.textContent=show(t);if(i===qi)b.className='on';b.onclick=()=>{qi=i;cellTxt='tap a cell';upd()};$('#toks').appendChild(b)});
+ $('#heads').innerHTML='';for(let h=0;h<12;h++){const w=AH.row(S(h),qi,mask),mx=Math.max(...w.filter(x=>x!==null));const b=document.createElement('button');b.textContent='head '+h;b.style.background=heat(mx);if(mx>0.55)b.style.color='#fff';
+  if(g)b.style.boxShadow='inset 0 -4px 0 '+GC[Math.floor(h/4)];if(h===head)b.className='on';b.onclick=()=>{head=h;upd()};$('#heads').appendChild(b)}
+ const M=AH.matrix(S(head),mask);geo=drawMat(cv,M,p.tokens,qi,false);
+ $('#cap').textContent=`Layer ${val('l')}, head ${head}${g?' (GQA probe, key-value group '+Math.floor(head/4)+')':''}. Rows = query tokens, columns = key tokens; ${mask?'hatched cells are masked future tokens':'mask OFF: future tokens get weight (never seen in training)'}. Orange outline: selected query row.`;
+ const w=M[qi];drawBars(w,p.tokens);
+ const top=AH.top(w,3);$('#q').textContent=`"${show(p.tokens[qi])}" (position ${qi+1} of ${T})`;$('#top').textContent=top.map(([x,j])=>`"${show(p.tokens[j])}" ${x.toFixed(2)}`).join(' · ');
+ $('#sum').textContent=w.filter(x=>x!==null).reduce((a,b)=>a+b,0).toFixed(2);$('#ent').textContent=AH.entropy(w.filter(x=>x!==null)).toFixed(2)+' bits';$('#cell').textContent=cellTxt;
+ $('#heads2').textContent=g?'12 query heads / 3 key-value heads (GQA probe)':'12 / 12 (multi-head attention)';
+ $('#warn').textContent=mask?'':'Mask off: these weights mix in future tokens. The model was trained only with the mask on, so these patterns are not meaningful.';
+ const gv=$('#grp').checked;$('#gcard').classList.toggle('hidden',!gv);if(gv){const g0=Math.floor(head/4)*4;$('#gwrap').innerHTML='';for(let h=g0;h<g0+4;h++){const d=document.createElement('div');const c=document.createElement('canvas');d.appendChild(c);
+  const top1=AH.top(AH.row(S(h),qi,mask),1)[0];const cap=document.createElement('div');cap.textContent=`head ${h}: "${show(p.tokens[qi])}" → "${show(p.tokens[top1[1]])}" ${top1[0].toFixed(2)}`;d.appendChild(cap);$('#gwrap').appendChild(d);drawMat(c,AH.matrix(S(h),mask),p.tokens,qi,true)}
+  if(!g){const n=document.createElement('div');n.style.gridColumn='1/-1';n.textContent='These 4 heads have their own keys (multi-head attention). Turn on the GQA probe to make them share one key-value head.';$('#gwrap').appendChild(n)}}}
+function drawBars(w,toks){const T=toks.length;const{ctx,w:W,h}=setupCanvas(bv,0.22);const pad=6,cw=(W-2*pad)/T;ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,W,h);const base=h-18;
+ w.forEach((v,j)=>{const x=pad+j*cw;if(v!==null){ctx.fillStyle='#4C72B0';ctx.fillRect(x+2,base-(base-12)*v,cw-4,(base-12)*v)}ctx.fillStyle='#262626';ctx.font='10px '+F;ctx.textAlign='center';ctx.fillText(show(toks[j]).slice(0,Math.max(2,Math.floor(cw/6))),x+cw/2,h-5)});
+ ctx.fillStyle='#4D4D4D';ctx.textAlign='left';ctx.fillText('weights of the selected row',pad,10)}
+cv.addEventListener('pointerdown',e=>{if(!geo)return;const r=cv.getBoundingClientRect();const j=Math.floor((e.clientX-r.left-geo.pad)/geo.cs),i=Math.floor((e.clientY-r.top-geo.pad)/geo.cs);
+ if(i<0||j<0||i>=geo.T||j>=geo.T)return;const p=P(),v=AH.matrix(S(head),$('#mask').checked)[i][j];cellTxt=`"${show(p.tokens[i])}" → "${show(p.tokens[j])}": ${v===null?'masked':v.toFixed(3)}`;qi=i;upd()});
+['pre','mask','gqa','grp'].forEach(id=>$('#'+id).addEventListener('change',upd));
+(function(){const h=new URLSearchParams(location.hash.slice(1));if(h.has('q'))qi=+h.get('q');if(h.has('h'))head=+h.get('h')})();
+bindRanges(['l'],upd);onResize(upd);
+</script></body></html>
