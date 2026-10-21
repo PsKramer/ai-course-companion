@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: Ring all-reduce</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>Ring all-reduce</h1>
+<video src="ch07-ring-allreduce.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> four GPUs, each holding a buffer split into 4 chunks (GPU r starts with the value r + 1), sum their buffers around a ring. Reduce-scatter (3 steps): every GPU sends one chunk to its right neighbour, which adds it; afterwards each GPU owns one fully summed chunk (10). All-gather (3 steps): the finished chunks circulate until every GPU holds 10 everywhere. Each GPU sends 2(n − 1)/n · S = 1.5 S bytes; time = 2(n − 1)α + 2(n − 1)/n · S/β, with α the latency per step and β the link bandwidth. <a href="ch07-ring-allreduce.gif">GIF version</a></p>
+</div></body></html>

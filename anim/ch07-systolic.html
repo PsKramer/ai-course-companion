@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: A systolic array, clock by clock</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>A systolic array, clock by clock</h1>
+<video src="ch07-systolic.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> a 4 × 4 weight-stationary systolic array. Each processing element (PE) holds one weight; activations enter from the left skewed by one clock per row and move right; partial sums move down and leave the bottom row. With M = 4 rows all 16 outputs finish after M + 2P − 2 = 10 clocks, and 64 of 160 PE-clocks are busy (40%). The replay with M = 1 takes 7 clocks at 14% utilization: short streams waste most of the array. <a href="ch07-systolic.gif">GIF version</a></p>
+</div></body></html>

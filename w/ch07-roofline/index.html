@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roofline</title><link rel="stylesheet" href="../../assets/style.css"><style>.sx{overflow-x:auto}#tb th{width:auto}#tb td,#tb th{white-space:nowrap;overflow-wrap:normal}</style></head><body><div class="wrap">
+<h1>The roofline: memory-bound or compute-bound?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: H100 in bf16, Course-8B's feed-forward up+gate GEMM (general matrix multiply, 4096 × 28,672) at M = 1 token. Slide M to 8, 64, 512 and 8,192 (prefill) and watch the dot climb the slope and reach the flat roof.</li>
+<li>Switch the chip to B200 or TPU7x, then the precision to FP8 (8-bit floating point): does any point change side?</li>
+<li>Turn on the shared-memory roof and step the tile size up until the tile dot clears the shared-memory ridge, on H100 and on B200.</li></ol></div>
+<div class="card">
+<div class="row"><label>Chip<select id="chip"><option value="h100">H100 SXM: 989 TFLOP/s bf16, 3.35 TB/s</option><option value="b200">B200: 2,250 TFLOP/s bf16, 7.7 TB/s</option><option value="mi355x">MI355X: 2,500 TFLOP/s bf16, 8 TB/s</option><option value="tpu7x">TPU7x: 2,307 TFLOP/s bf16, 7.38 TB/s</option><option value="custom">Custom</option></select></label>
+<label>Precision (number format)<select id="prec"><option value="bf16">bf16 (2 bytes)</option><option value="fp8">FP8 (1 byte)</option><option value="fp4">FP4 (half a byte; B200 only)</option></select></label></div>
+<div class="row" id="custom" style="display:none"><label>Custom peak (bf16): <b id="cpv"></b><input type="range" id="cp" min="100" max="5000" step="10" value="1000"></label><label>Custom memory bandwidth: <b id="cbv"></b><input type="range" id="cb" min="0.5" max="20" step="0.05" value="4"></label></div>
+<div class="row"><label><span class="lt">GEMM tokens <span class="nt">M</span> (batch in decode, prompt length in prefill): </span><b id="Mv"></b><input type="range" id="M" min="0" max="13" step="0.01" value="0"></label>
+<label><span class="lt">Decode attention: query heads per key-value head, <span class="nt">h</span>/<span class="nt">h<sub>kv</sub></span>: </span><b id="gv"></b><input type="range" id="g" min="0" max="7" step="1" value="2"></label></div>
+<div class="row"><label class="chk"><input type="checkbox" id="sm"> Show shared-memory roof (on-chip memory: 128 bytes per clock per SM)</label>
+<label>Square tile side (shared-memory roof)<select id="tile"><option value="16,16">16 × 16</option><option value="32,32">32 × 32</option><option value="64,64" selected>64 × 64</option><option value="128,128">128 × 128</option><option value="128,256">128 × 256</option><option value="256,256">256 × 256</option></select></label></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><div class="sx"><table id="tb"></table></div><table>
+<tr><th>Ridge point (HBM): peak ÷ memory bandwidth</th><td class="num big" id="rid"></td></tr>
+<tr><th>Shared-memory bandwidth and ridge</th><td class="num" id="srid"></td></tr>
+<tr><th>Tokens M where the GEMM crosses the HBM ridge</th><td class="num" id="cx"></td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Batch size moves a GEMM along the slope: at M = 1 it does about 1 FLOP per byte read and uses 0.3% of an H100. Changing precision moves the roof and the dot together (half the bytes, double the peak), so nothing changes side; only the times shrink. Attention over the KV cache stays at h/h<sub>kv</sub> FLOP per byte whatever the batch. On B200 the HBM ridge barely moves but the shared-memory ridge doubles, so kernels need bigger tiles.</div>
+<div class="model"><b>Model</b> (as in 7.1). Attainable FLOP/s = min(peak, I × bandwidth), with I the arithmetic intensity in FLOP per byte. GEMM M × K × N: F = 2MKN FLOPs, Q = b(MK + KN + MN) bytes, b = bytes per number. Decode attention: I = 2·(h/h<sub>kv</sub>)/b. RMSNorm (root-mean-square normalization): about 1 FLOP/byte. Shared-memory roof: SMs (streaming multiprocessors) × 128 bytes × clock; a square tile of side B does B/2 FLOP per byte of shared memory in bf16 (B<sub>M</sub>B<sub>N</sub>/(B<sub>M</sub> + B<sub>N</sub>) in general). Roofline time = max(F/peak, Q/bandwidth). Chip figures are dense datasheet peaks.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),F='Inter,"DejaVu Sans",sans-serif',K=4096,N=28672;let pts=[];
+const tf=x=>x>=1e15?(x/1e15).toFixed(2)+' PFLOP/s':(x/1e12).toFixed(x<1e13?2:0)+' TFLOP/s';
+const ts=s=>s<1e-3?(s*1e6).toFixed(1)+' µs':(s*1e3).toFixed(2)+' ms';
+function chip(){const id=$('#chip').value;if(id==='custom'){const p=val('cp')*1e12;return{name:'Custom',bf16:p,fp8:2*p,fp4:4*p,bw:val('cb')*1e12,sms:null}}return RF.CHIPS[id]}
+function upd(){const c=chip(),pr=$('#prec').value;$('#custom').style.display=$('#chip').value==='custom'?'':'none';$('#cpv').textContent=val('cp').toLocaleString()+' TFLOP/s';$('#cbv').textContent=val('cb').toFixed(2)+' TB/s';
+ let prec=pr,warn='';if(!c[pr]){prec='fp8';warn=`${c.name} has no ${pr.toUpperCase()} rating in this widget; showing FP8.`}
+ const peak=c[prec],bw=c.bw,b=RF.B[prec],M=Math.max(1,Math.round(2**val('M'))),g=2**val('g');$('#Mv').textContent=M.toLocaleString()+(M===1?' token':' tokens');$('#gv').textContent=g;
+ const G=RF.gemm(M,K,N,b);const ridge=RF.ridge(peak,bw);
+ pts=[{name:`Feed-forward up+gate GEMM, M = ${M.toLocaleString()}`,I:G.I,col:'#4C72B0',t:Math.max(G.F/peak,G.Q/bw)},{name:`Decode attention, h/h_kv = ${g}`,I:2*g/b,col:'#DD8452'},{name:'RMSNorm',I:1,col:'#8172B3'}];
+ const sbw=RF.smemBW(c);let sr=null;if($('#sm').checked&&sbw){const [tm,tn]=$('#tile').value.split(',').map(Number);sr=peak/sbw;pts.push({name:`Tile ${tm} × ${tn} (shared memory)`,I:RF.tileI(tm,tn,b),col:'#55A868',smem:true})}
+ if($('#sm').checked&&!sbw)warn+=(warn?' ':'')+'Shared-memory roof is shown only for H100 and B200 (SM count and clock known).';
+ $('#tb').innerHTML='<tr><th>Kernel</th><th class="num">FLOP/byte</th><th class="num">% of peak</th><th class="num">Bound</th><th class="num">Roofline time</th></tr>'+pts.map(p=>{const roofBW=p.smem?sbw:bw;const a=RF.attain(p.I,peak,roofBW);const at=p.smem?p.I>=0.99*sr:p.I>=ridge;
+  return `<tr><td><span style="color:${p.col}">●</span> ${p.name}</td><td class="num">${p.I<10?p.I.toFixed(2):p.I.toFixed(1)}</td><td class="num">${(100*a/peak).toFixed(a/peak<0.1?2:1)}%</td><td class="num">${p.smem?(at?'clears shared-memory ridge':'shared-memory-bound'):(at?'compute':'memory')}</td><td class="num">${p.t?ts(p.t):'—'}</td></tr>`}).join('');
+ $('#rid').textContent=ridge.toFixed(0)+' FLOP/byte';$('#srid').textContent=sbw?`${(sbw/1e12).toFixed(1)} TB/s, ridge ${(peak/sbw).toFixed(0)} FLOP/byte`:'not available for this chip';
+ const cx=RF.crossM(K,N,b,ridge);$('#cx').textContent=cx?cx.toLocaleString()+' tokens':'—';$('#warn').textContent=warn;
+ draw(peak,bw,ridge,sbw&&$('#sm').checked?sbw:null,c.name,prec)}
+function draw(peak,bw,ridge,sbw,name,prec){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.8:0.45);const l=52,r=12,t=14,b=32;ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const x0=-1,x1=4,y0=Math.log10(peak)-4,y1=Math.log10(peak)+0.4;const X=I=>l+(w-l-r)*(Math.log10(I)-x0)/(x1-x0),Y=v=>t+(h-t-b)*(1-(Math.log10(v)-y0)/(y1-y0));
+ ctx.font='11px '+F;ctx.strokeStyle='#E4DACA';ctx.fillStyle='#4D4D4D';for(let e=x0;e<=x1;e++){ctx.beginPath();ctx.moveTo(X(10**e),t);ctx.lineTo(X(10**e),h-b);ctx.stroke();ctx.textAlign='center';ctx.fillText(10**e>=1?(10**e).toLocaleString():'0.1',X(10**e),h-17)}
+ for(let e=Math.ceil(y0);e<=y1;e++){ctx.beginPath();ctx.moveTo(l,Y(10**e));ctx.lineTo(w-r,Y(10**e));ctx.stroke();ctx.textAlign='right';const v=10**e;ctx.fillText(v>=1e15?(v/1e15)+' P':(v/1e12)+' T',l-4,Y(10**e)+4)}ctx.save();ctx.translate(12,(t+h-b)/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('attainable FLOP/s',0,0);ctx.restore();
+ ctx.textAlign='center';ctx.fillText('arithmetic intensity, FLOP per byte (log)',(l+w)/2,h-2);
+ ctx.save();ctx.beginPath();ctx.rect(l,t,w-l-r,h-t-b);ctx.clip();
+ const roof=(B,dash,col)=>{ctx.strokeStyle=col;ctx.lineWidth=2.5;ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(X(10**x0),Y(B*10**x0));ctx.lineTo(X(peak/B),Y(peak));ctx.lineTo(X(10**x1),Y(peak));ctx.stroke();ctx.setLineDash([])};
+ if(sbw)roof(sbw,[6,4],'#55A868');roof(bw,[],'#262626');
+ ctx.fillStyle='#C44E52';ctx.beginPath();ctx.arc(X(ridge),Y(peak),5,0,7);ctx.fill();
+ pts.forEach(p=>{const a=RF.attain(p.I,peak,p.smem?sbw:bw);ctx.fillStyle=p.col;ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(p.I),Y(a),7,0,7);ctx.fill();ctx.stroke()});ctx.restore();
+ ctx.fillStyle='#C44E52';ctx.font='700 11px '+F;ctx.textAlign=X(ridge)>w*0.75?'right':'left';ctx.fillText(`ridge ${ridge.toFixed(0)}`,X(ridge)+(X(ridge)>w*0.75?-6:6),Y(peak)+16);
+ $('#cap').textContent=`${name}, ${prec==='bf16'?'bf16':prec.toUpperCase()} peak ${tf(peak)}, HBM ${(bw/1e12).toFixed(2)} TB/s. Solid line: HBM roofline (high-bandwidth memory). ${sbw?'Dashed green: shared-memory roof. ':''}Dots: kernels from the table.`}
+['chip','prec','sm','tile'].forEach(id=>$('#'+id).addEventListener('change',upd));bindRanges(['M','g','cp','cb'],upd);onResize(upd);
+</script></body></html>

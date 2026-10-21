@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>All-reduce time</title><link rel="stylesheet" href="../../assets/style.css"><style>.sx{overflow-x:auto}#tb th{width:auto}#tb td,#tb th{white-space:nowrap;overflow-wrap:normal}</style></head><body><div class="wrap">
+<h1>All-reduce: how long does summing a buffer across GPUs take?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: 8 GPUs on NVLink 4 (450 GB/s per GPU, 5 µs per step), 16 GB (Course-8B's bf16 gradients), ring and tree. Drag the message size from 1 KB to 16 GB and find where ring overtakes tree.</li>
+<li>Set 512 GPUs and the InfiniBand NDR preset (50 GB/s, 10 µs) and repeat.</li>
+<li>Turn on hierarchical (8 GPUs per node) at 512 GPUs and read the time for 16 GB; then go back to 8 GPUs on NVLink and turn on NVLink SHARP (in-switch reduction).</li></ol></div>
+<div class="card">
+<div class="row"><label><span class="lt">GPUs <span class="nt">n</span>: </span><b id="nv"></b><input type="range" id="n" min="1" max="10" step="1" value="3"></label>
+<label><span class="lt">Message size <span class="nt">S</span>: </span><b id="Sv"></b><input type="range" id="S" min="3" max="10.806" step="0.001" value="10.204"></label></div>
+<div class="row"><label>Link<select id="link"><option value="450,5,1">NVLink 4: 450 GB/s, 5 µs</option><option value="900,5,1">NVLink 5: 900 GB/s, 5 µs</option><option value="50,10,0">InfiniBand NDR: 50 GB/s, 10 µs</option><option value="100,10,0">800G network: 100 GB/s, 10 µs</option><option value="c">Custom</option></select></label>
+<label><span class="lt">GPUs per node <span class="nt">g</span> (hierarchical)</span><select id="gpn"><option>4</option><option selected>8</option><option>72</option></select></label></div>
+<div class="row" id="cust" style="display:none"><label><span class="lt">Bandwidth <span class="nt">β</span>: </span><b id="bv"></b><input type="range" id="b" min="1" max="1000" step="1" value="100"></label><label><span class="lt">Latency per step <span class="nt">α</span>: </span><b id="av"></b><input type="range" id="a" min="0.5" max="50" step="0.5" value="10"></label></div>
+<div class="row"><label class="chk"><input type="checkbox" id="ring" checked> Ring</label><label class="chk"><input type="checkbox" id="tree" checked> Tree</label><label class="chk"><input type="checkbox" id="nvls"> NVLink SHARP (in-switch)</label><label class="chk"><input type="checkbox" id="hier"> Hierarchical</label></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><canvas id="bars"></canvas><div class="mut">At your message size: each bar split into the latency part (gray, steps × α) and the bandwidth part (color, bytes ÷ β).</div></div>
+<div class="card"><div class="sx"><table id="tb"></table></div><table>
+<tr><th>Ring–tree crossover S* = nβα(n − 1 − log<sub>2</sub>n)</th><td class="num big" id="cx"></td></tr>
+<tr><th>Bytes each GPU sends (ring), 2(n − 1)/n · S</th><td class="num" id="snd"></td></tr></table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Small messages and many GPUs are latency-bound: the ring needs 2(n − 1) steps in a row, so trees, with 2·log<sub>2</sub>n steps, win. Large messages are bandwidth-bound and the ring wins, because each GPU sends only 2(n − 1)/n · S instead of 2S. Hierarchy keeps most bytes on fast NVLink inside a node, and in-switch reduction sends each byte once.</div>
+<div class="model"><b>Model</b> (alpha-beta model, as in 7.5). α = fixed latency per step, β = bandwidth per GPU. Ring: 2(n − 1)α + 2(n − 1)/n · S/β. Tree: 2·log<sub>2</sub>(n)·α + 2S/β. NVLink SHARP (Scalable Hierarchical Aggregation and Reduction Protocol: the NVLink switch does the sum; NVLink presets, n ≤ 72 only): 2α + S/β. Hierarchical: ring inside each node on NVLink 4 (reduce-scatter and all-gather, 2[(g − 1)α + (g − 1)/g · S/β]), plus a ring of n/g nodes over the selected link on the S/g shard each GPU owns. Bus bandwidth = 2(n − 1)/n · S / T. Latencies 5 µs and 10 µs are assumptions.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),bc=$('#bars'),F='Inter,"DejaVu Sans",sans-serif';const COL={ring:'#4C72B0',tree:'#DD8452',nvls:'#55A868',hier:'#8172B3'},NAME={ring:'Ring',tree:'Tree',nvls:'NVLink SHARP',hier:'Hierarchical'};
+const fb=x=>x>=1e9?(x/1e9).toFixed(x>=1e10?0:1)+' GB':x>=1e6?(x/1e6).toFixed(x>=1e7?0:1)+' MB':(x/1e3).toFixed(0)+' KB';
+const ft=s=>s>=1?s.toFixed(2)+' s':s>=1e-3?(s*1e3).toFixed(1)+' ms':(s*1e6).toFixed(1)+' µs';
+function P(){const l=$('#link').value;let b,a,nv;if(l==='c'){b=val('b')*1e9;a=val('a')*1e-6;nv=false}else{const p=l.split(',');b=+p[0]*1e9;a=+p[1]*1e-6;nv=p[2]==='1'}return{n:2**val('n'),S:Math.round(10**val('S')),b,a,nv,g:+$('#gpn').value}}
+function algs(o){const out={};if($('#ring').checked)out.ring=S=>AR.ring(S,o.n,o.a,o.b);if($('#tree').checked)out.tree=S=>AR.tree(S,o.n,o.a,o.b);
+ if($('#nvls').checked&&o.nv&&o.n<=72)out.nvls=S=>AR.nvls(S,o.n,o.a,o.b);if($('#hier').checked&&o.n>o.g)out.hier=S=>AR.hier(S,o.n,o.g,5e-6,450e9,o.a,o.b);return out}
+function upd(){const o=P();$('#cust').style.display=$('#link').value==='c'?'':'none';$('#nv').textContent=o.n.toLocaleString();$('#Sv').textContent=fb(o.S);$('#bv').textContent=val('b')+' GB/s';$('#av').textContent=val('a')+' µs';
+ const A=algs(o);let w=[];if($('#nvls').checked&&!(o.nv&&o.n<=72))w.push('NVLink SHARP needs an NVLink preset and at most 72 GPUs (one NVLink domain).');if($('#hier').checked&&o.n<=o.g)w.push('Hierarchical needs more GPUs than one node holds.');$('#warn').textContent=w.join(' ');
+ $('#tb').innerHTML='<tr><th>Algorithm</th><th class="num">Time</th><th class="num">Latency part</th><th class="num">Bandwidth part</th><th class="num">Bus bandwidth</th></tr>'+Object.entries(A).map(([k,f])=>{const r=f(o.S),t=AR.T(r);
+  return `<tr><td><span style="color:${COL[k]}">●</span> ${NAME[k]}${k==='hier'?` (inter-node ${ft(r.outer)})`:''}</td><td class="num"><b>${ft(t)}</b></td><td class="num">${ft(r.lat)}</td><td class="num">${ft(r.bw)}</td><td class="num">${(AR.busBW(o.S,o.n,t)/1e9).toFixed(AR.busBW(o.S,o.n,t)<1e10?2:0)} GB/s</td></tr>`}).join('');
+ const sx=AR.cross(o.n,o.a,o.b);$('#cx').textContent=sx>0?fb(sx):'— (n too small)';$('#snd').textContent=fb(2*(o.n-1)/o.n*o.S);
+ draw(o,A,sx);bars(o,A)}
+function draw(o,A,sx){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.8:0.45);const l=52,r=12,t=12,b=32;ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const xs=3,xe=10.806;let ys=Infinity,ye=-Infinity;const curves={};for(const[k,f]of Object.entries(A)){curves[k]=[];for(let i=0;i<=200;i++){const S=10**(xs+(xe-xs)*i/200),v=AR.T(f(S));curves[k].push([S,v]);ys=Math.min(ys,v);ye=Math.max(ye,v)}}
+ if(!isFinite(ys)){ys=1e-6;ye=1}const y0=Math.floor(Math.log10(ys)),y1=Math.ceil(Math.log10(ye));const X=S=>l+(w-l-r)*(Math.log10(S)-xs)/(xe-xs),Y=v=>t+(h-t-b)*(1-(Math.log10(v)-y0)/(y1-y0));
+ ctx.font='11px '+F;ctx.strokeStyle='#E4DACA';ctx.fillStyle='#4D4D4D';[1e3,1e6,1e9,1e10].forEach(S=>{ctx.beginPath();ctx.moveTo(X(S),t);ctx.lineTo(X(S),h-b);ctx.stroke();ctx.textAlign='center';ctx.fillText(fb(S),X(S),h-17)});
+ for(let e=y0;e<=y1;e++){ctx.beginPath();ctx.moveTo(l,Y(10**e));ctx.lineTo(w-r,Y(10**e));ctx.stroke();ctx.textAlign='right';ctx.fillText(ft(10**e),l-4,Y(10**e)+4)}
+ ctx.textAlign='center';ctx.fillText('message size S (log)',(l+w)/2,h-2);
+ for(const[k,c]of Object.entries(curves)){ctx.strokeStyle=COL[k];ctx.lineWidth=2.5;ctx.beginPath();c.forEach(([S,v],i)=>i?ctx.lineTo(X(S),Y(v)):ctx.moveTo(X(S),Y(v)));ctx.stroke()}
+ ctx.strokeStyle='#262626';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(X(o.S),t);ctx.lineTo(X(o.S),h-b);ctx.stroke();ctx.setLineDash([]);
+ if(A.ring&&A.tree&&sx>1e3&&sx<10**xe){ctx.fillStyle='#C44E52';const v=AR.T(A.ring(sx));ctx.beginPath();ctx.arc(X(sx),Y(v),5,0,7);ctx.fill();ctx.font='700 11px '+F;ctx.textAlign=X(sx)>w*0.7?'right':'left';ctx.fillText('ring = tree at '+fb(sx),X(sx)+(X(sx)>w*0.7?-8:8),Y(v)-8)}
+ $('#cap').textContent=`All-reduce time against message size for ${o.n.toLocaleString()} GPUs (log-log). Dashed line: your S. `+Object.keys(A).map(k=>NAME[k]+' '+({ring:'blue',tree:'orange',nvls:'green',hier:'purple'})[k]).join(', ')+'.'}
+function bars(o,A){const{ctx,w,h}=setupCanvas(bc,(12+30*Math.max(1,Object.keys(A).length))/Math.max(200,bc.clientWidth));const l=100,r=60;ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);const E=Object.entries(A);if(!E.length)return;
+ const rs=E.map(([k,f])=>[k,f(o.S)]);const mx=Math.max(...rs.map(([k,x])=>AR.T(x)));const bh=Math.min(22,(h-8)/E.length-6);ctx.font='11px '+F;
+ rs.forEach(([k,x],i)=>{const y=6+i*(bh+6),sc=(w-l-r)/mx;ctx.fillStyle='#262626';ctx.textAlign='right';ctx.fillText(NAME[k],l-6,y+bh/2+4);ctx.fillStyle='#9a9a9a';ctx.fillRect(l,y,Math.max(1,x.lat*sc),bh);ctx.fillStyle=COL[k];ctx.fillRect(l+x.lat*sc,y,x.bw*sc,bh);ctx.fillStyle='#262626';ctx.textAlign='left';ctx.fillText(ft(AR.T(x)),l+AR.T(x)*sc+4,y+bh/2+4)})}
+['link','gpn','ring','tree','nvls','hier'].forEach(id=>$('#'+id).addEventListener('change',upd));bindRanges(['n','S','b','a'],upd);onResize(upd);
+</script></body></html>

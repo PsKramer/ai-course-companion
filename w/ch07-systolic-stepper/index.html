@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Systolic array stepper</title><link rel="stylesheet" href="../../assets/style.css">
+<style>.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.btns button{font:inherit;font-size:13px;padding:7px 12px;border-radius:8px;border:0;background:#262626;color:#fff;cursor:pointer}.btns button.alt{background:#fff;color:#262626;border:1.5px solid #262626}
+#cv{max-width:640px;display:block;margin:0 auto}.ym{overflow-x:auto}.ym table{width:auto;margin:0 auto;font-size:12px}.ym td{min-width:26px;text-align:center;padding:2px 4px;border:1px solid #E4DACA}.ym td.d{background:#8172B3;color:#fff;font-weight:700}</style></head><body><div class="wrap">
+<h1>A systolic array, clock by clock</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: a 4 × 4 array of processing elements (PEs, each one multiply-accumulate unit), M = 4 rows of activations, weight-stationary. Press "Step" clock by clock and note when the first and the last outputs leave the bottom.</li>
+<li>Set M = 1, press "Run to end", and read the utilization; then M = 32.</li>
+<li>Switch the dataflow to output-stationary and step again: what moves now, and what stays put?</li></ol></div>
+<div class="card">
+<div class="row"><label><span class="lt">Array size <span class="nt">P</span> × <span class="nt">P</span>: </span><b id="Pv"></b><input type="range" id="P" min="2" max="8" step="1" value="4"></label>
+<label><span class="lt">Activation rows <span class="nt">M</span>: </span><b id="Mv"></b><input type="range" id="M" min="1" max="32" step="1" value="4"></label>
+<label>Dataflow<select id="mode"><option value="ws">weight-stationary (weights stay, sums move down)</option><option value="os">output-stationary (sums stay, weights and activations move)</option></select></label></div>
+<div class="btns"><button id="back" class="alt">◀ Back</button><button id="step">Step ▶</button><button id="play">Play</button><button id="end" class="alt">Run to end</button><button id="reset" class="alt">Reset</button></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><div class="mut" id="yh"></div><div class="ym" id="ym"></div></div>
+<div class="card"><table>
+<tr><th>Clock</th><td class="num big" id="clk"></td></tr>
+<tr><th>Outputs finished</th><td class="num" id="out"></td></tr>
+<tr><th>PEs busy this clock</th><td class="num" id="busy"></td></tr>
+<tr><th>Utilization so far (busy PE-clocks ÷ all PE-clocks)</th><td class="num" id="ut"></td></tr>
+<tr><th>Total clocks and final utilization</th><td class="num" id="form"></td></tr></table></div>
+<div class="notice hidden"><h2>What to notice</h2>Each weight is fetched once and used by every row that passes; each activation is used by every PE in its row, all without going back to memory. But the array takes P − 1 clocks to fill and P − 1 to drain, so the busy PEs form a diagonal wavefront and short streams (small M, such as batch-1 decode) leave most of the array idle.</div>
+<div class="model"><b>Model</b> (as in 7.7 and Exercise 7.7.1). Weight-stationary: weight W[k,n] sits in PE (k, n); activation X[m,k] reaches PE (k, n) at clock m + k + n (0-indexed), moving right; the partial sum of Y[m,n] moves down column n and leaves the bottom at clock m + n + P − 1. Total M + 2P − 2 clocks; utilization M/(M + 2P − 2). Output-stationary: PE (r, n) keeps the running sum of Y[m,n] for one P-row tile; X[m,k] enters from the left and W[k,n] from the top, meeting at clock k + r + n; each tile takes 3P − 2 clocks here (tiles not overlapped, results read out at the end). Small integers so the sums can be checked by hand.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv'),F='Inter,"DejaVu Sans",sans-serif';let t=0,timer=null,MX=null;
+const P=()=>val('P'),M=()=>val('M'),MD=()=>$('#mode').value;
+function mats(){MX=SY.mats(P(),M(),7)}
+function upd(){const p=P(),m=M(),md=MD(),T=SY.total(p,m,md);if(t>T-1)t=T-1;if(t<0)t=0;$('#Pv').textContent=p+' × '+p+' = '+p*p+' PEs';$('#Mv').textContent=m;
+ const st=SY.state(p,m,md,t,MX.X,MX.W);draw(p,m,md,st);
+ $('#clk').textContent=`${t+1} of ${T} (index ${t})`;$('#out').textContent=`${st.done.length} of ${m*p}`;$('#busy').textContent=`${st.busy} of ${p*p}`;$('#ut').textContent=(100*SY.util(p,m,md,t,MX.X,MX.W)).toFixed(1)+'%';
+ const fu=SY.util(p,m,md,T-1,MX.X,MX.W);$('#form').textContent=md==='ws'?`M + 2P − 2 = ${T} clocks; M/(M + 2P − 2) = ${m}/${T} = ${(100*fu).toFixed(1)}%`:`${Math.ceil(m/p)} tile(s) × (3P − 2) = ${T} clocks; ${(100*fu).toFixed(1)}%`;
+ $('#yh').textContent=`Output Y = X·W (${m} rows × ${p} columns): purple cells are finished.`;
+ const dn=new Map(st.done.map(o=>[o.m*100+o.n,o.y]));let h='<table>';for(let i=0;i<m;i++){h+='<tr>';for(let n=0;n<p;n++){const k=i*100+n;h+=dn.has(k)?`<td class="d">${dn.get(k)}</td>`:'<td>·</td>'}h+='</tr>'}$('#ym').innerHTML=h+'</table>'}
+function chipc(ctx,x,y,s,txt,fc){ctx.fillStyle=fc;ctx.beginPath();ctx.roundRect(x-s/2,y-s/2,s,s,4);ctx.fill();ctx.fillStyle='#fff';ctx.font=`700 ${Math.round(s*0.55)}px ${F}`;ctx.textAlign='center';ctx.fillText(txt,x,y+s*0.2)}
+function draw(p,m,md,st){const W=cv.clientWidth;const q=Math.min(3,p);const cs=Math.min(64,(W-20)/(p+q+0.6));const ox=10+q*cs,oy=10+(md==='os'?q*cs:0);
+ const H=oy+p*cs+(md==='ws'?cs*0.9:10)+6;const{ctx}=setupCanvas(cv,H/W);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,W,H);const X=MX.X,Wt=MX.W,cs2=cs*0.34;
+ for(let k=0;k<p;k++)for(let n=0;n<p;n++){const x=ox+n*cs,y=oy+k*cs,e=st.pe[k][n];ctx.fillStyle=e.on?'#F2B48A':'#FBF7EF';ctx.strokeStyle='#DD8452';ctx.lineWidth=e.on?2.5:1.2;ctx.beginPath();ctx.roundRect(x+2,y+2,cs-4,cs-4,6);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#4D4D4D';ctx.font=`${Math.round(cs*0.17)}px ${F}`;ctx.textAlign='left';
+  if(md==='ws'){ctx.fillText('w='+e.stat,x+6,y+cs*0.26);if(e.on){chipc(ctx,x+cs*0.3,y+cs*0.62,cs2,String(e.act),'#4C72B0');chipc(ctx,x+cs*0.72,y+cs*0.62,cs2,String(e.ps),'#8172B3')}}
+  else{if(e.stat!==null){chipc(ctx,x+cs*0.5,y+cs*0.5,cs2*1.1,String(e.stat),'#8172B3')}if(e.on){chipc(ctx,x+cs*0.2,y+cs*0.8,cs2*0.8,String(e.act),'#4C72B0');chipc(ctx,x+cs*0.8,y+cs*0.2,cs2*0.8,String(e.w),'#DD8452')}}}
+ // queues
+ if(md==='ws'){for(let k=0;k<p;k++)for(let mm=0;mm<m;mm++){const d=mm+k-t;if(d>=1&&d<=q){chipc(ctx,ox-d*cs+cs/2,oy+k*cs+cs/2,cs2,String(X[mm][k]),'#4C72B0')}}
+  for(let n=0;n<p;n++){const fin=st.done.filter(o=>o.n===n);if(fin.length){const o=fin[fin.length-1];chipc(ctx,ox+n*cs+cs/2,oy+p*cs+cs*0.42,cs2,String(o.y),'#8172B3')}}}
+ else{const L=3*p-2,tile=Math.floor(t/L),tau=t-tile*L;for(let r=0;r<p;r++)for(let k=0;k<p;k++){const mm=tile*p+r,d=k+r-tau;if(mm<m&&d>=1&&d<=q)chipc(ctx,ox-d*cs+cs/2,oy+r*cs+cs/2,cs2*0.8,String(X[mm][k]),'#4C72B0')}
+  for(let n=0;n<p;n++)for(let k=0;k<p;k++){const d=k+n-tau;if(d>=1&&d<=q)chipc(ctx,ox+n*cs+cs/2,oy-d*cs+cs/2,cs2*0.8,String(Wt[k][n]),'#DD8452')}}
+ $('#cap').textContent=md==='ws'?'Orange cells: PEs, each holding one weight w. Blue: activation passing right. Purple: partial sum moving down (the number is the sum so far). Filled cells are busy this clock; queued activations wait on the left, skewed by one clock per row; finished sums leave at the bottom.':'Purple: the sum each PE keeps (its own output). Blue: activation moving right; orange: weight moving down. Filled cells are busy this clock.'}
+function stepTo(n){t=n;upd()}
+$('#step').onclick=()=>stepTo(t+1);$('#back').onclick=()=>stepTo(t-1);$('#reset').onclick=()=>{stop();stepTo(0)};$('#end').onclick=()=>{stop();stepTo(1e9)};
+function stop(){if(timer){clearInterval(timer);timer=null;$('#play').textContent='Play'}}
+$('#play').onclick=()=>{if(timer){stop();return}$('#play').textContent='Pause';timer=setInterval(()=>{const T=SY.total(P(),M(),MD());if(t>=T-1){stop();return}stepTo(t+1)},500)};
+['P','M'].forEach(id=>$('#'+id).addEventListener('input',()=>{stop();t=0;mats();upd()}));$('#mode').addEventListener('change',()=>{stop();t=0;upd()});
+applyHash();mats();(function(){const h=new URLSearchParams(location.hash.slice(1));if(h.has('t'))t=+h.get('t')})();upd();onResize(upd);
+</script></body></html>
