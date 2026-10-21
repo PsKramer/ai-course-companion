@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: One GRPO step</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>One GRPO step</h1>
+<video src="ch05-grpo-group.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> one step of group relative policy optimization (GRPO). The policy samples 8 answers to "17 × 24 = ?"; a verifier gives reward 1 to the 3 correct ones and 0 to the 5 wrong ones. The group mean (0.375) is the baseline and the standard deviation (0.484) sets the scale, so each answer's advantage is (r − mean)/std: +1.29 for correct answers and −0.77 for wrong ones, applied to every token of the answer. A group that is all correct has advantage 0 everywhere and teaches nothing; DAPO (decoupled clip and dynamic sampling policy optimization) resamples such prompts. No value model is needed. <a href="ch05-grpo-group.gif">GIF version</a></p>
+</div></body></html>

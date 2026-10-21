@@ -12,6 +12,7 @@ const WIDGETS=[
 {id:'ch03-attention-heatmap',title:'Attention heatmap: who looks at whom',desc:'Ch3 (3.2): real GPT-2 small attention by layer and head, causal mask on/off, grouped-query probe.'},
 {id:'ch03-rope-rotation',title:'RoPE: the clocks inside attention',desc:'Ch3 (3.3): rotation dials per pair, score vs distance, base θ, training length and position interpolation.'},
 {id:'ch03-moe-router',title:'Mixture-of-experts router',desc:'Ch3 (3.5): load per expert, auxiliary-loss vs bias balancing, active vs total parameters.'},
+{id:'ch05-grpo-advantage',title:'GRPO advantages inside one group',desc:'Ch5 (5.5): group size, std scaling, zero-advantage share vs pass rate, sequence- vs token-mean aggregation.'},
 {id:'ch04-compute-budget',title:'Compute budget: how big a model for my FLOPs?',desc:'Ch4 (4.2): isoFLOP curves, compute-optimal size, and lifetime (training + serving) optimum.'},
 {id:'ch04-lr-schedule',title:'Learning-rate schedules: cosine vs WSD',desc:'Ch4 (4.3): warmup, cosine floor, WSD decay and decay branches.'},
 {id:'ch04-parallelism-planner',title:'Parallelism planner',desc:'Ch4 (4.5): memory, NVLink/InfiniBand traffic, bubble and step time for DP/ZeRO/FSDP/HSDP, TP and PP.'}];
@@ -22,5 +23,6 @@ const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, K
 {id:'ch08-agent-loop',title:'An agent re-reads its past: prefill with and without a prefix cache'},
 {id:'ch03-residual-stream',title:'The residual stream: read a normalized copy, add'},
 {id:'ch03-attention-formation',title:'One attention head: q, k, v, softmax, weighted sum'},
+{id:'ch05-grpo-group',title:'One GRPO step: rewards, group baseline, advantages'},
 {id:'ch04-zero-stages',title:'What ZeRO shards: DDP → ZeRO-1 → ZeRO-2 → ZeRO-3/FSDP'},
 {id:'ch04-1f1b-bubbles',title:'Pipeline bubbles: GPipe vs 1F1B'}];

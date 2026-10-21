@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GRPO advantages</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>Group relative policy optimization (GRPO): advantages inside one group</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: G = 8 answers per prompt, 3 correct. Read the advantages with "divide by std" (standard deviation) on (GRPO), then off (Dr. GRPO). Then move the correct count from 1 to 7.</li>
+<li>Drag the pass rate <span class="nt">p</span> toward 1 for G = 8, then for G = 16, and find where half of all groups give zero advantage.</li>
+<li>Set the lengths to 200 tokens (correct) and 2,000 tokens (wrong) and flip the aggregation between sequence-mean (GRPO) and token-mean (DAPO, decoupled clip and dynamic sampling policy optimization).</li></ol></div>
+<div class="card">
+<div class="row"><label><span class="lt">Group size <span class="nt">G</span></span><select id="G"><option>4</option><option selected>8</option><option>16</option><option>32</option><option>64</option></select></label>
+<label>Correct answers in the group: <b id="cv_"></b><input type="range" id="c" min="0" max="8" step="1" value="3"></label></div>
+<div class="row"><label class="chk"><input type="checkbox" id="std" checked> Divide by std (GRPO); off = Dr. GRPO</label>
+<label>Loss aggregation<select id="agg"><option value="seq">sequence-mean (GRPO)</option><option value="tok">token-mean (DAPO)</option></select></label></div>
+<div class="row"><label>Tokens per correct answer: <b id="lcv"></b><input type="range" id="lc" min="50" max="8000" step="50" value="200"></label>
+<label>Tokens per wrong answer: <b id="lwv"></b><input type="range" id="lw" min="50" max="8000" step="50" value="2000"></label></div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">One group: green = correct (reward 1), red = wrong (reward 0). Dashed line: group mean reward. Bars: advantage of each answer; every token of an answer gets that answer's advantage.</div></div>
+<div class="card"><table>
+<tr><th>Group mean reward / std (population)</th><td class="num" id="ms"></td></tr>
+<tr><th>Advantage of a correct answer</th><td class="num big" id="ac"></td></tr>
+<tr><th>Advantage of a wrong answer</th><td class="num big" id="aw"></td></tr>
+<tr><th>Std weight 1/√(q(1 − q)) at this success fraction q</th><td class="num" id="sw"></td></tr>
+<tr><th>Per-token weight, correct answer</th><td class="num" id="wc"></td></tr>
+<tr><th>Per-token weight, wrong answer</th><td class="num" id="ww"></td></tr>
+<tr><th>Total push on the wrong answer = |advantage| × weight × tokens</th><td class="num" id="tp"></td></tr>
+<tr><th>Same wrong answer if it were as short as a correct one</th><td class="num" id="tp2"></td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="card">
+<label><span class="lt">Pass rate <span class="nt">p</span> of the prompt (population view): </span><b id="pv"></b><input type="range" id="p" min="0" max="1" step="0.001" value="0.5"></label>
+<canvas id="pc"></canvas><div class="mut" id="pcap"></div>
+<table><tr><th>Share of groups with zero advantage, p<sup>G</sup> + (1 − p)<sup>G</sup></th><td class="num big" id="zs"></td></tr>
+<tr><th>Pass rates where half the groups are zero-advantage</th><td class="num" id="half"></td></tr></table></div>
+<div class="notice hidden"><h2>What to notice</h2>The group is its own baseline: no value model. Dividing by the std inflates the advantage of a rare success or a rare failure. When every answer is right (or every one wrong), all advantages are 0 and the prompt teaches nothing; bigger groups delay that. Sequence-mean averaging divides each answer's push by its own length, so a long wrong answer is pushed down no harder than a short one; token-mean fixes that.</div>
+<div class="model"><b>Model</b> (as in 5.5). Rewards r<sub>i</sub> ∈ {0, 1}. Advantage A<sub>i</sub> = (r<sub>i</sub> − mean(r)) / std(r) with std on (population std), A<sub>i</sub> = r<sub>i</sub> − mean(r) with std off; an all-equal group gives A = 0. Sequence-mean token weight = 1/(G·|o<sub>i</sub>|), where |o<sub>i</sub>| is answer i's length in tokens; token-mean weight = 1/Σ<sub>j</sub>|o<sub>j</sub>|. Zero-advantage share for a prompt with pass rate p: p<sup>G</sup> + (1 − p)<sup>G</sup>.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const F='Inter,"DejaVu Sans",sans-serif';const f3=x=>(x>0?'+':x<0?'−':'')+Math.abs(x).toFixed(3);
+function upd(){const G=+$('#G').value;const ci=$('#c');ci.max=G;if(+ci.value>G)ci.value=G;const c=+ci.value,std=$('#std').checked,agg=$('#agg').value,lc=val('lc'),lw=val('lw');
+ $('#cv_').textContent=c+' of '+G;$('#lcv').textContent=lc.toLocaleString()+' tokens';$('#lwv').textContent=lw.toLocaleString()+' tokens';
+ const A=GA.adv(G,c,std),m=c/G,s=Math.sqrt(m*(1-m));$('#ms').textContent=`${m.toFixed(3)} / ${s.toFixed(3)}`;
+ $('#ac').textContent=c>0?f3(A[0]):'— (no correct answers)';$('#aw').textContent=c<G?f3(A[G-1]):'— (no wrong answers)';
+ $('#sw').textContent=isFinite(GA.stdW(m))?GA.stdW(m).toFixed(2)+(std?'':' (not applied: std off)'):'— (all equal)';
+ const w=GA.weights(G,c,lc,lw,agg);$('#wc').textContent=w.wc.toExponential(2);$('#ww').textContent=w.ww.toExponential(2)+` (${(w.wc/w.ww).toFixed(1)}× ${w.wc>=w.ww?'less':'more'} than a correct answer's)`.replace('1.0× less','equal').replace(' (equal than a correct answer\'s)',' (same as a correct answer\'s)');
+ const aw=c<G?Math.abs(A[G-1]):0,pw=aw*w.ww*lw,pws=aw*(agg==='seq'?1/(G*lc):w.ww)*lc;$('#tp').textContent=pw.toFixed(4);$('#tp2').textContent=pws.toFixed(4)+(pws>0?` (the long one is pushed ${(pw/pws).toFixed(1)}× as hard)`:'');
+ $('#warn').textContent=(c===0||c===G)?`All ${G} answers ${c?'correct':'wrong'}: every advantage is 0, so this prompt gives no learning signal (DAPO resamples such prompts).`:'';
+ drawGroup(G,c,A);const p=val('p');$('#pv').textContent=p.toFixed(3);$('#zs').textContent=(100*GA.zeroShare(p,G)).toFixed(1)+'%';
+ const h=GA.half(G);$('#half').textContent=`p ≈ ${(1-h).toFixed(3)} and p ≈ ${h.toFixed(3)} (G = ${G})`;drawPop(G,p,h)}
+function drawGroup(G,c,A){const cv=$('#cv');const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.62:0.3);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const l=34,r=8,cw=(w-l-r)/G,mx=Math.max(2.2,...A.map(Math.abs))*1.1;const mid=h*0.55,sc=(h*0.4)/mx;ctx.font='11px '+F;
+ ctx.strokeStyle='#E4DACA';ctx.fillStyle='#4D4D4D';ctx.textAlign='right';[-2,-1,0,1,2].filter(v=>Math.abs(v)<mx).forEach(v=>{ctx.beginPath();ctx.moveTo(l,mid-v*sc);ctx.lineTo(w-r,mid-v*sc);ctx.stroke();ctx.fillText((v>0?'+':'')+v,l-4,mid-v*sc+4)});
+ for(let i=0;i<G;i++){const x=l+i*cw,ok=i<c;ctx.fillStyle=ok?'#55A868':'#C44E52';ctx.globalAlpha=0.18;ctx.fillRect(x+2,6,cw-4,h-12);ctx.globalAlpha=1;
+  const a=A[i];ctx.fillStyle=a===0?'#9a9a9a':ok?'#55A868':'#C44E52';const bh=Math.max(2,Math.abs(a)*sc);ctx.fillRect(x+cw*0.2,a>=0?mid-bh:mid,cw*0.6,bh);
+  if(cw>26){ctx.fillStyle='#262626';ctx.textAlign='center';ctx.fillText(ok?'✓ 1':'✗ 0',x+cw/2,18);ctx.fillText((a>0?'+':'')+a.toFixed(2),x+cw/2,a>=0?mid-bh-5:mid+bh+13)}}
+ ctx.setLineDash([5,4]);ctx.strokeStyle='#262626';ctx.beginPath();ctx.moveTo(l,mid);ctx.lineTo(w-r,mid);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#262626';ctx.textAlign='right';ctx.font='700 11px '+F;ctx.fillText('mean reward '+(c/G).toFixed(3)+' (advantage 0)',w-r-4,h-4)}
+function drawPop(G,p,hf){const cv=$('#pc');const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.6:0.28);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);const l=40,r=10,t=10,b=28;
+ const X=x=>l+(w-l-r)*x,Y=y=>t+(h-t-b)*(1-y);ctx.font='11px '+F;ctx.strokeStyle='#E4DACA';ctx.fillStyle='#4D4D4D';
+ [0,0.5,1].forEach(v=>{ctx.beginPath();ctx.moveTo(l,Y(v));ctx.lineTo(w-r,Y(v));ctx.stroke();ctx.textAlign='right';ctx.fillText((v*100)+'%',l-4,Y(v)+4)});
+ ctx.textAlign='center';[0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v,X(v),h-14));ctx.fillText('pass rate p',(l+w)/2,h-1);
+ ctx.strokeStyle='#8172B3';ctx.lineWidth=2.5;ctx.beginPath();for(let k=0;k<=400;k++){const x=k/400;k?ctx.lineTo(X(x),Y(GA.zeroShare(x,G))):ctx.moveTo(X(x),Y(GA.zeroShare(x,G)))}ctx.stroke();ctx.lineWidth=1;
+ ctx.setLineDash([4,4]);ctx.strokeStyle='#C44E52';[hf,1-hf].forEach(x=>{ctx.beginPath();ctx.moveTo(X(x),Y(0));ctx.lineTo(X(x),Y(0.5));ctx.stroke()});ctx.setLineDash([]);
+ ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(X(p),Y(GA.zeroShare(p,G)),6,0,7);ctx.fill();
+ $('#pcap').textContent=`Share of groups of ${G} with zero advantage (all right or all wrong) against the prompt's pass rate. Red dashes: where it crosses 50%. Orange dot: your p.`}
+['G','std','agg'].forEach(id=>$('#'+id).addEventListener('change',upd));bindRanges(['c','lc','lw','p'],upd);onResize(upd);
+</script></body></html>
