@@ -8,7 +8,9 @@ function setupCanvas(cv,aspect){ // HiDPI responsive canvas; returns ctx + logic
  const dpr=window.devicePixelRatio||1;const w=cv.clientWidth;const h=Math.round(w*aspect);
  cv.style.height=h+'px';cv.width=w*dpr;cv.height=h*dpr;const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx,w,h}}
 function onResize(fn){let t;window.addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(fn,80)});}
-function bindRanges(ids,fn){ids.forEach(id=>{const el=document.getElementById(id);el.addEventListener('input',fn)});fn()}
+// URL hash presets for testing/deep links: #id=value&id2=value (checkbox: 1/0)
+function applyHash(){if(!location.hash)return;new URLSearchParams(location.hash.slice(1)).forEach((v,k)=>{const e=document.getElementById(k);if(!e)return;if(e.type==='checkbox')e.checked=v==='1';else e.value=v;})}
+function bindRanges(ids,fn){applyHash();ids.forEach(id=>{const el=document.getElementById(id);el.addEventListener('input',fn)});fn()}
 function val(id){const e=document.getElementById(id);return parseFloat(e.value)}
 // "What to notice" is revealed after the first interaction (STYLE_GUIDE §7)
 (function(){function rev(){document.querySelectorAll('.notice.hidden').forEach(n=>n.classList.remove('hidden'))}

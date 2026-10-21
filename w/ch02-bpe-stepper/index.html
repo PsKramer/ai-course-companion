@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BPE merge stepper</title><link rel="stylesheet" href="../../assets/style.css">
+<style>.chips{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0}.chunk{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:10px;background:#EFE6D6}.chip{display:inline-flex;flex-direction:column;align-items:center;border-radius:8px;padding:3px 6px;color:#fff;font:600 .95rem/1.2 "DejaVu Sans Mono",ui-monospace,monospace;white-space:pre}.chip small{font:600 .62rem Inter,"DejaVu Sans",sans-serif;opacity:.85}
+.ml{max-height:220px;overflow:auto;font:.82rem/1.5 "DejaVu Sans Mono",ui-monospace,monospace;background:#fff;border-radius:10px;padding:6px 10px}.ml div.cur{background:#F6C9A8;border-radius:4px}
+textarea,input[type=text]{width:100%;font:15px "DejaVu Sans Mono",ui-monospace,monospace;border-radius:10px;border:1.5px solid #d9cfbd;padding:7px 10px}.btns{display:flex;flex-wrap:wrap;gap:6px}details summary{cursor:pointer;font-weight:700;font-size:.85rem}</style></head><body><div class="wrap">
+<h1>Byte-pair encoding (BPE), one merge at a time</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Press <i>Next merge</i> ten times (or <i>Run 10</i>) and watch the token count fall as frequent byte pairs fuse.</li>
+<li>Type 1234567 and switch the pre-tokenization rule between "digits in groups of 3" and "no digit rule".</li>
+<li>Type a word in a script the training corpus never saw, such as Москва or नमस्ते, and read the bytes per token.</li></ol></div>
+<div class="card">
+<label style="flex:none">Text to encode<input type="text" id="txt" value="the thermal tokens of the other theory"></label>
+<div class="row" style="margin-top:8px">
+<label>Pre-tokenization (splits text into chunks that merges never cross)<select id="mode"><option value="gpt">GPT-style regex, digits in groups of 3</option><option value="nodigit">GPT-style regex, no digit rule</option><option value="none">No pre-tokenization</option></select></label>
+<label>Merges applied: <b id="mv"></b><input type="range" id="m" min="0" max="300" step="1" value="0"></label></div>
+<div class="btns" style="margin-top:8px"><button id="prev" class="sec">◀ Previous merge</button><button id="next">Next merge ▶</button><button id="r10" class="sec">Run 10</button><button id="reset" class="sec">Reset</button></div>
+<details style="margin-top:8px"><summary>Training corpus (bundled with Exercise 2.3.1; paste your own)</summary><textarea id="corp" rows="5"></textarea><button id="retrain" class="sec" style="margin-top:6px">Retrain on this corpus</button></details>
+</div>
+<div class="card"><div class="mut">Tokens (one chip per token, with its size in bytes):</div><div class="chips" id="chips"></div>
+<table><tr><th>Pre-token chunks (merges never cross a chunk boundary, shown as gaps)</th><td class="num" id="nc"></td></tr><tr><th>UTF-8 bytes</th><td class="num" id="nb"></td></tr><tr><th>Tokens</th><td class="num big" id="nt"></td></tr><tr><th>Bytes per token</th><td class="num" id="bpt"></td></tr></table></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">Token count of your text against the number of merges applied. Orange dot: current merge count.</div></div>
+<div class="card"><div class="mut" style="margin-bottom:4px">Ranked merge list learned from the corpus (␣ = space). Highlighted: the merge just applied.</div><div class="ml" id="ml"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Frequent strings collapse first and the gains flatten quickly: the first few merges (␣t, ␣th, ␣the) do most of the work on English text. Pre-tokenization decides what can ever become one token (with the digit rule, 1234567 is always at least 3 tokens), and a script the corpus never saw stays at raw bytes, 2 to 3 tokens per character.</div>
+<div class="model"><b>Model</b> (same algorithm as Exercise 2.3.1). Training: start from the 256 single-byte tokens, split the corpus into pre-token chunks, and repeatedly merge the most frequent adjacent pair across all chunks (ties go to the lowest pair IDs). Encoding: inside each chunk, apply the earliest-learned merge that is present until none applies, which is what tiktoken does. The small bundled corpus runs out of pairs after about 130 merges, while production tokenizers learn 100,000 to 200,000.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+let model=null,corpus=BPE_CORPUS,prevMode=null;const cv=$('#cv');const COLS=['#4C72B0','#DD8452','#55A868','#8172B3','#C44E52','#937860','#2F5597','#B5651D'];
+$('#corp').value=corpus;
+function retrain(){model=BPE.train(corpus,300,$('#mode').value);$('#m').max=model.merges.length;if(val('m')>model.merges.length)$('#m').value=model.merges.length;prevMode=$('#mode').value}
+function vis(s){return s.replace(/ /g,'␣').replace(/\n/g,'⏎')}
+function upd(){if(!model||prevMode!==$('#mode').value)retrain();const m=val('m'),mode=$('#mode').value,t=$('#txt').value;
+ const chunks=BPE.pretokenize(t,mode);const per=chunks.map(c=>BPE.encode(c,model,m,'none'));const ids=[].concat(...per);const nb=BPE.bytes(t).length;$('#nc').textContent=chunks.length+(chunks.length===1?' chunk':' chunks');
+ $('#mv').textContent=m+' of '+model.merges.length+' learned';$('#nb').textContent=nb+' bytes';$('#nt').textContent=ids.length+' tokens';$('#bpt').textContent=ids.length?(nb/ids.length).toFixed(2)+' bytes per token':'—';
+ $('#chips').innerHTML=per.map(cids=>'<span class="chunk">'+cids.map(id=>{const s=BPE.show(model,id);const e=document.createElement('span');e.textContent=vis(s);return `<span class="chip" style="background:${COLS[id%COLS.length]}">${e.innerHTML||'&nbsp;'}<small>${model.vocab[id].length} B</small></span>`}).join('')+'</span>').join('');
+ $('#ml').innerHTML=model.merges.slice(0,Math.max(m+5,20)).map((x,i)=>{const e=document.createElement('span');e.textContent=`rank ${i+1}: '${vis(BPE.show(model,x.a))}' + '${vis(BPE.show(model,x.b))}' → '${vis(BPE.show(model,x.id))}'  (${x.count} times)`;return `<div class="${i===m-1?'cur':''}" style="opacity:${i<m?1:.45}">${e.innerHTML}</div>`}).join('');
+ const cur=$('#ml .cur'),ml=$('#ml');if(cur)ml.scrollTop=Math.max(0,cur.offsetTop-ml.offsetTop-ml.clientHeight/2);draw(t,mode,m);}
+function draw(t,mode,m){const M=model.merges.length;const pts=[];for(let k=0;k<=M;k++)pts.push(BPE.encode(t,model,k,mode).length);
+ const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.6:0.3);const F='Inter,"DejaVu Sans",sans-serif';const l=36,r=10,tp=10,b=28;const mx=Math.max(...pts,1);
+ const x=k=>l+(w-l-r)*k/Math.max(M,1),y=v=>tp+(h-tp-b)*(1-v/mx);ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';
+ ctx.textAlign='right';[0,0.5,1].forEach(f=>{ctx.fillText(Math.round(mx*f),l-4,y(mx*f)+4)});ctx.textAlign='center';[0,Math.round(M/2),M].forEach(k=>ctx.fillText(k,x(k),h-14));ctx.fillText('merges applied',(l+w)/2,h-1);
+ ctx.strokeStyle='#4C72B0';ctx.lineWidth=2.5;ctx.beginPath();pts.forEach((v,k)=>k?ctx.lineTo(x(k),y(v)):ctx.moveTo(x(k),y(v)));ctx.stroke();
+ ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(x(m),y(pts[m]),6,0,7);ctx.fill();}
+const setM=v=>{$('#m').value=Math.max(0,Math.min(model.merges.length,v));upd()};
+$('#next').onclick=()=>setM(val('m')+1);$('#prev').onclick=()=>setM(val('m')-1);$('#r10').onclick=()=>setM(val('m')+10);$('#reset').onclick=()=>setM(0);
+$('#retrain').onclick=()=>{corpus=$('#corp').value||BPE_CORPUS;model=null;upd()};
+['txt','mode'].forEach(i=>$('#'+i).addEventListener('input',upd));
+bindRanges(['m'],upd);onResize(upd);
+</script></body></html>

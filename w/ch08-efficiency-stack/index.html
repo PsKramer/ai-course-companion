@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The efficiency stack</title><link rel="stylesheet" href="../../assets/style.css">
+<style>.seg{display:flex;flex-wrap:wrap;gap:6px}.seg button{padding:7px 12px}</style></head><body><div class="wrap">
+<h1>The efficiency stack: bytes per token, lever by lever</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B (8.03 billion parameters) on one H100 (3.35 TB/s), batch size 1, bf16 weights, short context. Switch weights to NVFP4 (NVIDIA's 4-bit floating-point format, 4.5 bits per weight with scales).</li>
+<li>Turn on drafting with draft length γ = 3 and acceptance rate α = 0.8.</li>
+<li>Raise the context to 131,072 tokens, then turn on the hybrid (4 of 32 layers keep attention).</li></ol></div>
+<div class="card">
+<label style="flex:none">Weight format<span class="seg" id="wseg"><button data-v="16">bf16 · 16 bits</button><button data-v="8">FP8 · 8 bits</button><button data-v="4.5">NVFP4 · 4.5 bits</button></span></label><input type="hidden" id="wb" value="16">
+<label style="flex:none;margin-top:8px">Key-value (KV) cache format<span class="seg" id="kseg"><button data-v="2">bf16 · 2 bytes</button><button data-v="1">FP8 · 1 byte</button></span></label><input type="hidden" id="kb" value="2">
+<div class="row" style="margin-top:8px">
+<label style="flex-direction:row;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="dr"> speculative drafting</label>
+<label style="flex-direction:row;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="hy"> hybrid: attention in 4 of 32 layers (KV ÷ 8)</label></div>
+<div class="row" style="margin-top:6px">
+<label><span class="lt">Draft length <span class="nt">γ</span> (tokens proposed per round): </span><b id="gv"></b><input type="range" id="g" min="1" max="8" step="1" value="3"></label>
+<label><span class="lt">Acceptance rate <span class="nt">α</span> (chance each drafted token is kept): </span><b id="av"></b><input type="range" id="a" min="0.5" max="0.95" step="0.01" value="0.8"></label>
+</div><div class="row">
+<label>Drafter cost per drafted token: <b id="dcv"></b><input type="range" id="dc" min="0" max="0.5" step="0.01" value="0.1"></label>
+<label>Context T: <b id="Tv"></b><input type="range" id="T" min="0" max="131072" step="1024" value="0"></label>
+</div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">Ladder: tokens per second as each enabled lever is added in order (weights → KV format → drafting → hybrid), at your context length.</div></div>
+<div class="card"><table>
+<tr><th>Weights in memory</th><td class="num" id="wGB"></td></tr>
+<tr><th>KV cache per sequence at context T</th><td class="num" id="kvGB"></td></tr>
+<tr><th>Bytes read per full-model pass, N·b<sub>w</sub> + T·s<sub>kv</sub></th><td class="num" id="bytes"></td></tr>
+<tr><th>Weight-read time t<sub>w</sub> = N·b<sub>w</sub> / bandwidth</th><td class="num" id="tw"></td></tr>
+<tr><th>Tokens per full pass τ</th><td class="num" id="tau"></td></tr>
+<tr><th>Round time</th><td class="num" id="round"></td></tr>
+<tr><th>Single-stream speed</th><td class="num big" id="tps"></td></tr>
+</table></div>
+<div class="notice hidden"><h2>What to notice</h2>Each lever divides one term of the bytes read per token. Fewer bits shrink the weight term, drafting spreads one weight read over several tokens, and the hybrid shrinks the cache term. At long context the cache, not the weights, dominates, so the architecture lever beats the precision lever: NVFP4 plus drafting falls to about 430 tokens per second at 131,072 tokens, and the hybrid brings it back to about 1,230.</div>
+<div class="model"><b>Model</b> (as in 8.6). Decode at batch size 1 is memory-bound (1.3): time per full-model pass = bytes read / 3.35 TB/s. N = 8.03 billion parameters; b<sub>w</sub> = bytes per weight; s<sub>kv</sub> = 131,072 bytes of KV cache per token in bf16 for Course-8B (2 × 32 layers × 8 KV heads × 128 dimensions × 2 bytes), halved for FP8 and divided by 8 for the hybrid. With drafting, τ = (1 − α<sup>γ+1</sup>) / (1 − α) tokens per round (from 6.6), and round time = γ × drafter cost × t<sub>w</sub> + t<sub>w</sub> + T·s<sub>kv</sub> / bandwidth. Without drafting, τ = 1 and round time = t<sub>w</sub> + T·s<sub>kv</sub> / bandwidth.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');
+function seg(id,inp){document.querySelectorAll('#'+id+' button').forEach(b=>{b.onclick=()=>{$('#'+inp).value=b.dataset.v;upd()}})}
+seg('wseg','wb');seg('kseg','kb');
+function opts(){return{wbits:val('wb'),kvBytes:val('kb'),draft:$('#dr').checked,gamma:val('g'),alpha:val('a'),hybrid:$('#hy').checked,T:val('T'),draftCost:val('dc')}}
+function upd(){const o=opts(),r=EFF.calc(o);
+ document.querySelectorAll('#wseg button').forEach(b=>b.className=b.dataset.v==String(o.wbits)?'on':'sec');document.querySelectorAll('#kseg button').forEach(b=>b.className=b.dataset.v==String(o.kvBytes)?'on':'sec');
+ $('#gv').textContent=o.gamma+' tokens';$('#av').textContent=o.alpha.toFixed(2);$('#dcv').textContent=Math.round(o.draftCost*100)+'% of a weight-read pass';$('#Tv').textContent=o.T.toLocaleString()+' tokens'+(o.T===0?' (short context)':'');
+ $('#wGB').textContent=r.wGB.toFixed(2)+' GB';$('#kvGB').textContent=r.kvGB.toFixed(2)+' GB';$('#bytes').textContent=(r.bytes/1e9).toFixed(2)+' GB';$('#tw').textContent=(r.tw*1e3).toFixed(2)+' ms';
+ $('#tau').textContent=r.tau.toFixed(2)+' tokens';$('#round').textContent=(r.round*1e3).toFixed(2)+' ms';$('#tps').textContent=Math.round(r.tps).toLocaleString()+' tokens/s';
+ ['g','a','dc'].forEach(i=>$('#'+i).disabled=!o.draft);draw(o);}
+function draw(o){const base={wbits:16,kvBytes:2,draft:false,gamma:o.gamma,alpha:o.alpha,hybrid:false,T:o.T,draftCost:o.draftCost};
+ const steps=[['bf16 baseline',{...base}]];let cur={...base};
+ if(o.wbits!==16){cur={...cur,wbits:o.wbits};steps.push([o.wbits===8?'FP8 weights':'NVFP4 weights',cur])}
+ if(o.kvBytes!==2){cur={...cur,kvBytes:1};steps.push(['FP8 KV cache',cur])}
+ if(o.draft){cur={...cur,draft:true};steps.push(['+ drafting γ='+o.gamma,cur])}
+ if(o.hybrid){cur={...cur,hybrid:true};steps.push(['+ hybrid',cur])}
+ const vals=steps.map(s=>EFF.calc(s[1]).tps);const narrow=cv.clientWidth<520;const{ctx,w,h}=setupCanvas(cv,narrow?0.75:0.36);const F='Inter,"DejaVu Sans",sans-serif';
+ ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);const mx=Math.max(2000,...vals)*1.1;const t=26,b=40,l=10;const n=5;const bw=(w-2*l)/n;
+ const cols=['#9a9a9a','#4C72B0','#55A868','#8172B3','#DD8452'];
+ steps.forEach((s,i)=>{const v=vals[i],x=l+i*bw+bw*0.12,ww=bw*0.76,hh=(h-t-b)*v/mx,y=h-b-hh;
+  ctx.fillStyle=i===steps.length-1?'#DD8452':'#C9BBA4';ctx.beginPath();ctx.roundRect(x,y,ww,hh,6);ctx.fill();
+  ctx.fillStyle='#262626';ctx.font='800 '+(narrow?11:13)+'px '+F;ctx.textAlign='center';ctx.fillText(Math.round(v).toLocaleString(),x+ww/2,y-6);
+  ctx.font='600 '+(narrow?9.5:11)+'px '+F;ctx.fillStyle='#4D4D4D';const words=s[0].split(' ');let line='',ly=h-b+14;words.forEach(wd=>{if(ctx.measureText(line+wd).width>ww&&line){ctx.fillText(line.trim(),x+ww/2,ly);ly+=12;line=''}line+=wd+' '});ctx.fillText(line.trim(),x+ww/2,ly);});
+ ctx.font='700 11px '+F;ctx.textAlign='left';ctx.fillStyle='#4D4D4D';ctx.fillText('TOKENS PER SECOND',l,14);}
+['dr','hy'].forEach(i=>$('#'+i).addEventListener('change',upd));
+bindRanges(['g','a','dc','T'],upd);onResize(upd);
+</script></body></html>

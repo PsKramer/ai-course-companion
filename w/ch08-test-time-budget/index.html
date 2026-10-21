@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test-time budget: best-of-n sampling</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>Test-time budget: how many samples, how long, how much?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B-128k (8.03 billion parameters, bf16 weights, 131,072 bytes of key-value (KV) cache per token) on one H100, success rate p = 0.2 per sample. Raise the number of samples n until coverage passes 90%.</li>
+<li>Set the sample length to 30,000 tokens and n = 16 samples: the batch no longer fits in one wave.</li>
+<li>Set p = 0.01 and read the minimum n for 90% coverage.</li></ol></div>
+<div class="card">
+<div class="row">
+<label><span class="lt">Per-sample success rate <span class="nt">p</span>: </span><b id="pv"></b><input type="range" id="p" min="-3" max="-0.0458" step="0.001" value="-0.69897"></label>
+<label><span class="lt">Samples <span class="nt">n</span>: </span><b id="nv"></b><input type="range" id="n" min="1" max="256" step="1" value="1"></label>
+</div><div class="row">
+<label>Sample length: <b id="Lv"></b><input type="range" id="L" min="500" max="60000" step="500" value="6000"></label>
+<label>Prompt length: <b id="Pv"></b><input type="range" id="P" min="0" max="20000" step="250" value="1000"></label>
+</div><div class="row">
+<label>GPU price: <b id="prv"></b><input type="range" id="price" min="0.5" max="8" step="0.05" value="2.5"></label>
+<label>Coverage target: <b id="cv"></b><input type="range" id="c" min="50" max="99" step="1" value="90"></label>
+</div></div>
+<div class="card"><canvas id="cvs"></canvas>
+<div class="mut">Coverage 1 − (1 − p)<sup>n</sup> against samples n (log scale). Orange dot: your n. Dashed line: the coverage target.</div></div>
+<div class="card"><table>
+<tr><th>Coverage (chance at least one sample is correct)</th><td class="num big" id="cov"></td></tr>
+<tr><th>Minimum n for the target, ⌈ln(1 − c) / ln(1 − p)⌉</th><td class="num" id="minn"></td></tr>
+<tr><th>Max sequences per wave (56 GB KV budget)</th><td class="num" id="per"></td></tr>
+<tr><th>Waves</th><td class="num" id="waves"></td></tr>
+<tr><th>Wall-clock, all samples batched</th><td class="num big" id="secs"></td></tr>
+<tr><th>Wall-clock, one sample after another</th><td class="num" id="seq"></td></tr>
+<tr><th>Tokens generated</th><td class="num" id="tok"></td></tr>
+<tr><th>GPU cost of the run</th><td class="num" id="usd"></td></tr>
+<tr><th>Expected cost per solved problem</th><td class="num big" id="ups"></td></tr>
+</table><div id="flag" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Parallel samples are almost free in wall-clock time while they fit in one wave, because decode is memory-bound: every step reads the 16 GB of weights once whatever the batch size. Once the KV cache fills, extra samples need another wave and the time steps up. When p is tiny, no affordable n helps: at p = 0.01 you need 230 samples for 90% coverage.</div>
+<div class="model"><b>Model</b> (same as Exercise 8.1.1). Coverage assumes independent samples and a perfect verifier. Decode time for a batch of B sequences: Σ<sub>i&lt;length</sub> (2N + B·(prompt + i)·131,072 bytes) / 3.35 TB/s. That is the memory-bound decode model from 1.3: weights (2 bytes × N parameters) plus each sequence's KV cache, read once per step from high-bandwidth memory (HBM). A wave holds ⌊56 GB / ((prompt + length) × 131,072 bytes)⌋ sequences, and waves run one after another. Cost = GPU-seconds × price / 3,600. Prefill time is ignored because it is under 1% here.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cvs=$('#cvs');
+function upd(){const p=10**val('p'),n=val('n'),L=val('L'),P=val('P'),price=val('price'),c=val('c')/100;
+ const r=TTB.run(p,n,L,P,price);
+ $('#pv').textContent=p<0.01?p.toFixed(4):p.toFixed(3);$('#nv').textContent=n+(n===1?' sample':' samples');$('#Lv').textContent=L.toLocaleString()+' tokens';$('#Pv').textContent=P.toLocaleString()+' tokens';$("#prv").textContent='USD '+price.toFixed(2)+' per GPU-hour';$('#cv').textContent=(c*100).toFixed(0)+'%';
+ $('#cov').textContent=(r.cov*100).toFixed(1)+'%';const mn=TTB.minN(p,c);$('#minn').textContent=mn.toLocaleString()+' samples';
+ $('#per').textContent=r.per<1?'0 (one sequence does not fit)':r.per.toLocaleString()+' sequences';
+ $('#waves').textContent=r.waves.length?r.waves.length+' ('+r.waves.map(w=>w.B).join(' then ')+(r.n===1?' sequence)':' sequences)'):'—';
+ $('#secs').textContent=isFinite(r.secs)?r.secs.toFixed(1)+' s':'does not fit';$('#seq').textContent=r.seq.toFixed(1)+' s';
+ $('#tok').textContent=r.tokens.toLocaleString()+' tokens';$('#usd').textContent=isFinite(r.usd)?'USD '+r.usd.toFixed(3):'—';$('#ups').textContent=isFinite(r.usdPerSolve)?'USD '+r.usdPerSolve.toFixed(3):'—';
+ $('#flag').textContent=r.waves.length>1?`Does not fit in one wave: ${n} sequences would need ${(r.kvAll/1e9).toFixed(0)} GB of KV cache, more than the 56 GB budget.`:r.per<1?'One sequence of this length does not fit in the 56 GB KV budget.':'';
+ draw(p,n,c);}
+function draw(p,n,c){const{ctx,w,h}=setupCanvas(cvs,cvs.clientWidth<520?0.75:0.42);const F='Inter,"DejaVu Sans",sans-serif';
+ const l=40,rr=14,t=14,b=30;const x=v=>l+(w-l-rr)*Math.log10(v)/Math.log10(256),y=v=>t+(h-t-b)*(1-v);
+ ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ ctx.strokeStyle='#E4DACA';ctx.lineWidth=1;ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';
+ [0,0.25,0.5,0.75,1].forEach(v=>{ctx.beginPath();ctx.moveTo(l,y(v));ctx.lineTo(w-rr,y(v));ctx.stroke();ctx.textAlign='right';ctx.fillText((v*100)+'%',l-4,y(v)+4)});
+ [1,4,16,64,256].forEach(v=>{ctx.textAlign='center';ctx.fillText(v,x(v),h-12)});ctx.fillText('samples n',(l+w)/2,h-1);
+ ctx.setLineDash([5,4]);ctx.strokeStyle='#55A868';ctx.beginPath();ctx.moveTo(l,y(c));ctx.lineTo(w-rr,y(c));ctx.stroke();ctx.setLineDash([]);
+ ctx.strokeStyle='#4C72B0';ctx.lineWidth=3;ctx.beginPath();for(let k=0;k<=200;k++){const v=256**(k/200);const X=x(v),Y=y(TTB.coverage(p,v));k?ctx.lineTo(X,Y):ctx.moveTo(X,Y)}ctx.stroke();
+ ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(x(n),y(TTB.coverage(p,n)),7,0,7);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();}
+bindRanges(['p','n','L','P','price','c'],upd);onResize(upd);
+</script></body></html>
