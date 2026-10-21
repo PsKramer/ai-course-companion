@@ -7,4 +7,5 @@ const WIDGETS=[
 {id:'ch08-test-time-budget',title:'Test-time budget: best-of-n sampling',desc:'Ch8 (8.1): coverage, waves, wall-clock and cost of parallel samples.'},
 {id:'ch08-agent-context-cost',title:'Agent context cost per turn',desc:'Ch8 (8.2): prefill and decode cost of a multi-turn agent, with and without a prefix cache.'},
 {id:'ch08-efficiency-stack',title:'The efficiency stack',desc:'Ch8 (8.6): weights format, KV format, drafting and hybrid layers, lever by lever.'}];
-const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, KV cache growth)'}];
+const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, KV cache growth)'},
+{id:'ch02-patchify',title:'From pixels to tokens (patchify, 2 × 2 merge, image tokens in the sequence)'}];

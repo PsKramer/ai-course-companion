@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: From pixels to tokens</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>From pixels to tokens</h1>
+<video src="ch02-patchify.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> a 448 × 448-pixel image is cut into 28 × 28 = 784 patches of 16 × 16 pixels; each patch flattens to 16 × 16 × 3 = 768 numbers; 2 × 2 merging leaves 196 image tokens, which a projector maps to Course-8B's model width d = 4,096. The image tokens join 5 text tokens in one 201-position sequence, and every position costs 128 KiB of key-value (KV) cache, so 201 positions take 25.1 MiB. Doubling the image side gives 4× the tokens (1024 × 1024 pixels → 1,024 tokens). <a href="ch02-patchify.gif">GIF version</a></p>
+</div></body></html>
