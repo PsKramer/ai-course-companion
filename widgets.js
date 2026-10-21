@@ -8,7 +8,10 @@ const WIDGETS=[
 {id:'ch08-agent-context-cost',title:'Agent context cost per turn',desc:'Ch8 (8.2): prefill and decode cost of a multi-turn agent, with and without a prefix cache.'},
 {id:'ch08-efficiency-stack',title:'The efficiency stack',desc:'Ch8 (8.6): weights format, KV format, drafting and hybrid layers, lever by lever.'},
 {id:'ch06-kv-calc',title:'KV-cache calculator: how many users fit?',desc:'Ch6 (6.2): bytes per token for MHA/GQA/MQA/MLA/sliding window, HBM budget, users, crossover.'},
-{id:'ch06-specdec-sim',title:'Speculative decoding: when does it pay?',desc:'Ch6 (6.6): tokens per pass, verify cost, speedup vs batch size and the crossover.'}];
+{id:'ch06-specdec-sim',title:'Speculative decoding: when does it pay?',desc:'Ch6 (6.6): tokens per pass, verify cost, speedup vs batch size and the crossover.'},
+{id:'ch04-compute-budget',title:'Compute budget: how big a model for my FLOPs?',desc:'Ch4 (4.2): isoFLOP curves, compute-optimal size, and lifetime (training + serving) optimum.'},
+{id:'ch04-lr-schedule',title:'Learning-rate schedules: cosine vs WSD',desc:'Ch4 (4.3): warmup, cosine floor, WSD decay and decay branches.'},
+{id:'ch04-parallelism-planner',title:'Parallelism planner',desc:'Ch4 (4.5): memory, NVLink/InfiniBand traffic, bubble and step time for DP/ZeRO/FSDP/HSDP, TP and PP.'}];
 const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, KV cache growth)'},
 {id:'ch02-patchify',title:'From pixels to tokens (patchify, 2 × 2 merge, image tokens in the sequence)'},
 {id:'ch06-cont-batching',title:'Continuous batching vs static batching, with a paged KV pool'},

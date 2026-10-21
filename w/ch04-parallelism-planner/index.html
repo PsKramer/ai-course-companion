@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parallelism planner</title><link rel="stylesheet" href="../../assets/style.css"><style>.seg{display:flex;flex-wrap:wrap;gap:6px}.seg button{padding:7px 12px}details summary{cursor:pointer;font-weight:700;font-size:.85rem}.bars div.lbl{font-size:.78rem;font-weight:700;color:#4D4D4D;margin-top:8px}</style></head><body><div class="wrap">
+<h1>Parallelism planner: memory, traffic and step time per GPU</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B (8.03 billion parameters, 8,192-token sequences) on 512 H100s with hybrid sharded data parallel (HSDP: shard within each 8-GPU node, replicate across nodes). Switch HSDP to plain distributed data parallel (DDP) and watch memory pass the 80 GB line.</li>
+<li>Set tensor parallelism (TP) to 8 with ZeRO-1, then turn on "TP across nodes".</li>
+<li>Set TP 2, pipeline parallelism (PP) 4 with ZeRO-1, then raise the global batch from 512 to 2,048 sequences (8 → 32 micro-batches): the bubble falls from 27% to 9%.</li></ol></div>
+<div class="card">
+<label style="flex:none">GPUs<span class="seg" id="gseg"></span></label><input type="hidden" id="G" value="512">
+<label style="flex:none;margin-top:8px">Tensor parallel (TP)<span class="seg" id="tseg"></span></label><input type="hidden" id="tp" value="1">
+<label style="flex:none;margin-top:8px">Pipeline parallel (PP)<span class="seg" id="pseg"></span></label><input type="hidden" id="pp" value="1">
+<label style="flex:none;margin-top:8px">Data-parallel mode<span class="seg" id="mseg"></span></label><input type="hidden" id="mode" value="hsdp">
+<label style="flex:none;margin-top:8px">Activation recompute<span class="seg" id="rseg"></span></label><input type="hidden" id="rc" value="none">
+<div class="row" style="margin-top:8px">
+<label>Global batch: <b id="gbv"></b><input type="range" id="gb" min="6" max="12" step="1" value="9"></label>
+<label>Micro-batch size: <b id="mbv"></b><input type="range" id="mb" min="1" max="8" step="1" value="1"></label>
+<label style="flex-direction:row;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="tpx"> TP across nodes (TP traffic on InfiniBand)</label></div>
+<details style="margin-top:8px"><summary>Model (Course-8B by default)</summary><div class="row">
+<label><span class="lt">Parameters <span class="nt">N</span> (billions)</span><input type="number" id="mN" value="8.03" step="0.01"></label><label><span class="lt">Layers <span class="nt">L</span></span><input type="number" id="mL" value="32"></label><label><span class="lt">Width <span class="nt">d</span></span><input type="number" id="md" value="4096"></label>
+<label><span class="lt">KV heads <span class="nt">h_kv</span></span><input type="number" id="mh" value="8"></label><label><span class="lt">Head dim <span class="nt">d_h</span></span><input type="number" id="mdh" value="128"></label><label><span class="lt">FFN width <span class="nt">d_ff</span></span><input type="number" id="mff" value="14336"></label><label><span class="lt">Sequence length <span class="nt">T</span></span><input type="number" id="mT" value="8192"></label></div></details>
+</div>
+<div class="card bars"><canvas id="cv"></canvas></div>
+<div class="card"><table id="tbl"></table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Every axis trades memory for a different kind of communication. Sharding (ZeRO, FSDP) cuts state but adds gradient and weight traffic. Tensor parallelism cuts both state and activations, but its traffic only fits inside NVLink: across nodes it is 9× slower. Pipelines shrink memory cheaply, but they need many micro-batches to hide the bubble.</div>
+<div class="model"><b>Model</b> (same formulas as Exercise 4.5.1, from 4.4 and 4.5). dp = GPUs / (TP·PP); P = N / (TP·PP) parameters per rank. Training state in bytes: DDP 16P; ZeRO-1 4P + 12P/dp; ZeRO-2 2P + 14P/dp; fully sharded data parallel (FSDP) 16P/dp; HSDP 16P/8. Activations = (6d + 2·h_kv·d_h + 3·d_ff)·2 bytes per token per layer (full recompute: 2d bytes), ÷ TP, × L/PP layers × T × micro-batch × in-flight micro-batches (PP for 1F1B). Ring all-reduce sends 2(n − 1)/n·S bytes per GPU. Bubble = (PP − 1)/(m + PP − 1) with m micro-batches. Compute = 6N·tokens / (GPUs × 989 TFLOP/s × 40% model FLOPs utilization (MFU)); NVLink 450 GB/s, InfiniBand 50 GB/s per GPU. Step ≈ max(compute / (1 − bubble), NVLink time, InfiniBand time), assuming no overlap credit.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');
+function seg(id,inp,opts){$('#'+id).innerHTML=opts.map(([v,l])=>`<button data-v="${v}">${l}</button>`).join('');document.querySelectorAll('#'+id+' button').forEach(b=>b.onclick=()=>{$('#'+inp).value=b.dataset.v;upd()})}
+seg('gseg','G',[8,16,64,256,512,1024,4096,16384].map(v=>[v,v.toLocaleString()]));seg('tseg','tp',[1,2,4,8].map(v=>[v,v]));seg('pseg','pp',[1,2,4,8,16].map(v=>[v,v]));
+seg('mseg','mode',[['ddp','DDP'],['zero1','ZeRO-1'],['zero2','ZeRO-2'],['fsdp','FSDP'],['hsdp','HSDP']]);seg('rseg','rc',[['none','None'],['full','Full']]);
+const GB=v=>(v/1e9).toFixed(1)+' GB';
+function upd(){const m={N:val('mN')*1e9,L:val('mL'),d:val('md'),h_kv:val('mh'),d_h:val('mdh'),d_ff:val('mff'),T:val('mT')};
+ const G=+$('#G').value,tp=+$('#tp').value,pp=+$('#pp').value,mode=$('#mode').value,rc=$('#rc').value,gs=2**val('gb'),mb=val('mb'),tx=$('#tpx').checked;
+ [['gseg','G'],['tseg','tp'],['pseg','pp'],['mseg','mode'],['rseg','rc']].forEach(([s,i])=>document.querySelectorAll('#'+s+' button').forEach(b=>b.className=b.dataset.v===String($('#'+i).value)?'on':'sec'));
+ $('#gbv').textContent=gs.toLocaleString()+' sequences';$('#mbv').textContent=mb+(mb===1?' sequence':' sequences');
+ const r=PLAN.plan(m,G,tp,pp,mode,gs,mb,rc,8,tx);
+ if(r.err){$('#tbl').innerHTML='';$('#warn').textContent=r.err;const{ctx,w,h}=setupCanvas(cv,0.1);ctx.clearRect(0,0,w,h);return}
+ $('#warn').textContent=r.total>80e9?`Over memory: ${GB(r.total)} per GPU exceeds the H100's 80 GB.`:'';
+ const rows=[['Data-parallel size dp',r.dp+' replicas'],['Micro-batches per step m',r.nm],['Training state per GPU',GB(r.state)],['Activations per GPU',GB(r.acts)],['Total memory per GPU',GB(r.total)],['NVLink bytes per GPU per step',GB(r.nvl)+' ('+r.tn.toFixed(2)+' s)'],['InfiniBand bytes per GPU per step',GB(r.ib)+' ('+r.ti.toFixed(2)+' s)'],['Pipeline bubble',(100*r.bubble).toFixed(1)+'%'],['Compute time per step',r.tc.toFixed(2)+' s'],['Step-time estimate',r.step.toFixed(2)+' s, limited by '+r.lim]];
+ $('#tbl').innerHTML=rows.map(([a,b])=>`<tr><th>${a}</th><td class="num">${b}</td></tr>`).join('');draw(r);}
+function draw(r){const narrow=cv.clientWidth<520;const{ctx,w,h}=setupCanvas(cv,narrow?1.0:0.5);const F='Inter,"DejaVu Sans",sans-serif';ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const l=8,bw=w-2*l,bh=Math.max(18,h*0.08);let y=18;
+ function title(s){ctx.font='800 11px '+F;ctx.fillStyle='#262626';ctx.textAlign='left';ctx.fillText(s,l,y);y+=6}
+ function bar(parts,max,line,lineLab){ctx.fillStyle='#E4DACA';ctx.beginPath();ctx.roundRect(l,y,bw,bh,6);ctx.fill();let x=l;parts.forEach(([v,c,lab])=>{const ww=Math.min(bw-(x-l),bw*v/max);if(ww<=0)return;ctx.fillStyle=c;ctx.fillRect(x,y,ww,bh);ctx.fillStyle='#fff';ctx.font='700 11px '+F;ctx.textAlign='center';if(ww>70)ctx.fillText(lab,x+ww/2,y+bh/2+4);x+=ww});
+  if(line){const X=l+bw*line/max;ctx.strokeStyle='#C44E52';ctx.setLineDash([5,3]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(X,y-4);ctx.lineTo(X,y+bh+4);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#C44E52';ctx.font='700 10px '+F;ctx.textAlign='right';ctx.fillText(lineLab,X-3,y+bh+14)}y+=bh+30}
+ const mm=Math.max(100e9,r.total*1.05);title('MEMORY PER GPU');bar([[r.state,'#55A868','state '+GB(r.state)],[r.acts,'#4C72B0','activations '+GB(r.acts)]],mm,80e9,'80 GB');
+ const bm=Math.max(r.nvl,r.ib,1e9)*1.05;title('BYTES PER GPU PER STEP');bar([[r.nvl,'#8172B3','NVLink '+GB(r.nvl)]],bm);bar([[r.ib,'#C44E52','InfiniBand '+GB(r.ib)]],bm);
+ const tm=Math.max(r.tc/(1-r.bubble),r.tn,r.ti)*1.05;title('TIME PER STEP (bars run in parallel; the longest sets the step)');
+ bar([[r.tc,'#DD8452','compute '+r.tc.toFixed(2)+' s'],[r.tc/(1-r.bubble)-r.tc,'#9a9a9a','bubble']],tm);bar([[r.tn,'#8172B3','NVLink '+r.tn.toFixed(2)+' s']],tm);bar([[r.ti,'#C44E52','InfiniBand '+r.ti.toFixed(2)+' s']],tm);}
+['tpx','mN','mL','md','mh','mdh','mff','mT'].forEach(i=>$('#'+i).addEventListener('input',upd));
+bindRanges(['gb','mb'],upd);onResize(upd);
+</script></body></html>

@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Learning-rate schedules</title><link rel="stylesheet" href="../../assets/style.css"><style>.seg{display:flex;flex-wrap:wrap;gap:6px}.badge{display:inline-block;background:#C44E52;color:#fff;border-radius:10px;padding:6px 10px;font-weight:700;font-size:.85rem;margin-top:8px}details summary{cursor:pointer;font-weight:700;font-size:.85rem;margin-bottom:6px}</style></head><body><div class="wrap">
+<h1>Learning-rate (LR) schedules: cosine vs warmup-stable-decay (WSD)</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B's recipe from 1.2 (peak LR 3 × 10⁻⁴, 2,000 warmup steps, 3.58 million steps). Switch between cosine and WSD and compare the LR at 50% and 90% of the run.</li>
+<li>With WSD, branch a decay at 40% of the run and read how many extra steps that finished checkpoint costs.</li>
+<li>Set warmup to 100 steps and read the warning.</li></ol></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">LR against training step. Blue: selected schedule. Gray: the other schedule. Purple: a WSD decay branched off the plateau.</div><div id="warn"></div></div>
+<div class="card">
+<label style="flex:none">Schedule<span class="seg" id="sseg"><button data-v="cosine">Cosine</button><button data-v="wsd">WSD</button></span></label><input type="hidden" id="sch" value="cosine">
+<details open><summary>Settings</summary>
+<div class="row"><label>Peak LR: <b id="pv"></b><input type="range" id="peak" min="-5" max="-2" step="0.0001" value="-3.5229"></label>
+<label>Warmup: <b id="wv"></b><input type="range" id="warm" min="0" max="20000" step="100" value="2000"></label>
+<label>Total steps: <b id="tv"></b><input type="range" id="total" min="100000" max="5000000" step="10000" value="3580000"></label></div>
+<div class="row"><label>Cosine floor (share of peak): <b id="fv"></b><input type="range" id="floor" min="0" max="0.5" step="0.01" value="0.1"></label>
+<label>WSD decay phase (share of the run): <b id="dv"></b><input type="range" id="decay" min="0.05" max="0.3" step="0.01" value="0.2"></label>
+<label>Branch a WSD decay at: <b id="bv"></b><input type="range" id="br" min="0" max="0.8" step="0.01" value="0"></label></div></details></div>
+<div class="card"><table>
+<tr><th>LR at 50% of the run</th><td class="num" id="l50"></td></tr>
+<tr><th>LR at 90% of the run</th><td class="num" id="l90"></td></tr>
+<tr><th>Area under the LR curve, relative to cosine</th><td class="num" id="area"></td></tr>
+<tr><th>WSD branch: extra decay steps = decay share × branch step</th><td class="num big" id="extra"></td></tr></table></div>
+<div class="notice hidden"><h2>What to notice</h2>WSD spends far longer at the peak LR (about 1.6× the area under the curve of cosine here) and can produce a finished checkpoint from any point on its plateau by running a short decay branch. Cosine has to know the run length in advance, because its whole shape stretches with the total number of steps.</div>
+<div class="model"><b>Model</b> (as in 4.3). Both schedules warm up linearly from 0 to the peak LR over the warmup steps. Cosine then decays as floor + (1 − floor)·½(1 + cos(π·progress)), times the peak. WSD holds the peak until the final decay share of the run, then decays linearly to 0. A WSD branch at step b decays linearly to 0 over (decay share × b) extra steps. Area is the mean LR over the run, divided by cosine's.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');document.querySelectorAll('#sseg button').forEach(b=>b.onclick=()=>{$('#sch').value=b.dataset.v;upd()});
+function o(){return{peak:Number((10**val('peak')).toPrecision(3)),warm:val('warm'),total:val('total'),floor:val('floor'),decay:val('decay')}}
+const E=v=>v.toExponential(2).replace(/e([+-]\d+)/,(m,e)=>' × 10'+String(+e).split('').map(c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[c]||'⁻').join(''));
+function upd(){const p=o(),sch=$('#sch').value,fn=sch==='cosine'?LRS.cosine:LRS.wsd;const br=val('br')*p.total;
+ document.querySelectorAll('#sseg button').forEach(b=>b.className=b.dataset.v===sch?'on':'sec');
+ $('#pv').textContent=E(p.peak);$('#wv').textContent=p.warm.toLocaleString()+' steps';$('#tv').textContent=(p.total/1e6).toFixed(2)+' million steps';$('#fv').textContent=Math.round(p.floor*100)+'% of peak';$('#dv').textContent=Math.round(p.decay*100)+'% of the run';
+ $('#bv').textContent=br>0?Math.round(val('br')*100)+'% of the run (step '+Math.round(br).toLocaleString()+')':'off';
+ $('#l50').textContent=E(fn.call(LRS,0.5*p.total,p));$('#l90').textContent=E(fn.call(LRS,0.9*p.total,p));
+ $('#area').textContent=(LRS.area(fn,p,4000)/LRS.area(LRS.cosine,p,4000)).toFixed(2)+'×';
+ $('#extra').textContent=br>0?Math.round(p.decay*br).toLocaleString()+' steps':'set a branch point';
+ $('#warn').innerHTML=p.warm<500?'<span class="badge">Short warmup: Adam\'s second-moment estimates are poor early; risk of early instability (4.3, 4.6)</span>':'';
+ draw(p,sch,br);}
+function draw(p,sch,br){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.7:0.4);const F='Inter,"DejaVu Sans",sans-serif';const l=58,r=12,t=12,b=32;
+ const mx=Math.max(p.total,br>0?br*(1+p.decay):0);const x=s=>l+(w-l-r)*s/mx,y=v=>t+(h-t-b)*(1-v/(p.peak*1.08));
+ ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';ctx.strokeStyle='#E4DACA';ctx.lineWidth=1;
+ [0,0.5,1].forEach(f=>{ctx.beginPath();ctx.moveTo(l,y(f*p.peak));ctx.lineTo(w-r,y(f*p.peak));ctx.stroke();ctx.textAlign='right';ctx.fillText((f*p.peak).toExponential(1),l-4,y(f*p.peak)+4)});
+ ctx.textAlign='center';[0,0.25,0.5,0.75,1].forEach(f=>ctx.fillText((f*p.total/1e6).toFixed(2)+'M',x(f*p.total),h-16));ctx.fillText('training step',(l+w)/2,h-2);
+ const line=(fn,c,lw)=>{ctx.strokeStyle=c;ctx.lineWidth=lw;ctx.beginPath();let st=false;for(let i=0;i<=600;i++){const s=i/600*mx;const v=fn(s);if(v===null||s>p.total&&fn!==bfn){continue}st?ctx.lineTo(x(s),y(v)):(ctx.moveTo(x(s),y(v)),st=true)}ctx.stroke()};
+ const cos=s=>s<=p.total?LRS.cosine(s,p):null,ws=s=>s<=p.total?LRS.wsd(s,p):null,bfn=s=>s>=br?LRS.branch(s,p,br):null;
+ line(sch==='cosine'?ws:cos,'#C9BBA4',2);line(sch==='cosine'?cos:ws,'#4C72B0',3);
+ if(br>0){line(bfn,'#8172B3',3);ctx.fillStyle='#8172B3';ctx.beginPath();ctx.arc(x(br),y(p.peak),5,0,7);ctx.fill()}
+ [0.5,0.9].forEach(f=>{ctx.setLineDash([3,4]);ctx.strokeStyle='#4D4D4D';ctx.beginPath();ctx.moveTo(x(f*p.total),t);ctx.lineTo(x(f*p.total),h-b);ctx.stroke();ctx.setLineDash([])});}
+bindRanges(['peak','warm','total','floor','decay','br'],upd);onResize(upd);
+</script></body></html>

@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compute budget planner</title><link rel="stylesheet" href="../../assets/style.css"><style>.seg{display:flex;flex-wrap:wrap;gap:6px}</style></head><body><div class="wrap">
+<h1>Compute budget: how big a model for my FLOPs?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B's budget, C = 7.2 × 10²³ FLOPs (8.03 billion parameters × 15 trillion tokens × 6). Slide model size N from 3 billion to 300 billion parameters and watch predicted loss.</li>
+<li>Switch the fitted constants from the Epoch 2024 refit to Hoffmann et al. method 3 and watch the optimum move from about 81 billion to 36 billion parameters.</li>
+<li>Switch to lifetime mode and raise the expected served tokens S to 50 trillion.</li></ol></div>
+<div class="card">
+<label style="flex:none">Mode<span class="seg" id="mseg"><button data-v="fixed">Fixed compute</button><button data-v="life">Fixed loss (lifetime)</button></span></label><input type="hidden" id="mode" value="fixed">
+<label style="flex:none;margin-top:8px">Fitted constants<span class="seg" id="fseg"><button data-v="epoch">Epoch 2024 refit</button><button data-v="hoff">Hoffmann method 3</button></span></label><input type="hidden" id="fit" value="epoch">
+<div class="row" style="margin-top:8px">
+<label><span class="lt">Compute budget <span class="nt">C</span>: </span><b id="Cv"></b><input type="range" id="C" min="20" max="26" step="0.0001" value="23.8573"></label>
+<label><span class="lt">Model size <span class="nt">N</span>: </span><b id="Nv"></b><input type="range" id="N" min="9" max="12" step="0.0001" value="9.9047"></label>
+<label><span class="lt">Expected served tokens <span class="nt">S</span>: </span><b id="Sv"></b><input type="range" id="S" min="9" max="14" step="0.01" value="9"></label>
+</div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut" id="cap"></div></div>
+<div class="card"><table id="tbl"></table></div>
+<div class="notice hidden"><h2>What to notice</h2>The valley is flat near the optimum: halving or doubling N costs only about 0.005 in loss (nats per token). The two published fits disagree a lot about where the optimum sits. Once you count serving, the expected number of served tokens pushes the best model far below the Chinchilla size, which is why Course-8B is trained on 15 trillion tokens.</div>
+<div class="model"><b>Model</b> (as in 4.2). Predicted loss L(N, D) = E + A/N<sup>α</sup> + B/D<sup>β</sup> in nats per token, where N = parameters, D = training tokens, and E, A, B, α, β are fitted constants. Fixed compute: D = C / (6N) (the 6ND rule from 1.2), and the optimum minimizes L over N. Lifetime mode: the target loss is Course-8B's (8.03 billion parameters, 15 trillion tokens) under the chosen fit; for each N the tokens needed are D = (B / (L* − E − A/N<sup>α</sup>))<sup>1/β</sup> (no value where the target is unreachable), and lifetime compute = 6ND training + 2N·S inference. H100-hours assume 40% model FLOPs utilization (MFU) of 989 TFLOP/s.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');const B=v=>v>=1e12?(v/1e12).toFixed(2)+' trillion':(v/1e9).toFixed(v<1e10?2:1)+' billion';
+function seg(id,inp){document.querySelectorAll('#'+id+' button').forEach(b=>b.onclick=()=>{$('#'+inp).value=b.dataset.v;upd()})}seg('mseg','mode');seg('fseg','fit');
+function S(){return val('S')<=9.005?0:10**val('S')}
+function upd(){const f=CB.FITS[$('#fit').value],mode=$('#mode').value,C=10**val('C'),N=Number((10**val('N')).toPrecision(3)),s=S();
+ document.querySelectorAll('#mseg button').forEach(b=>b.className=b.dataset.v===mode?'on':'sec');document.querySelectorAll('#fseg button').forEach(b=>b.className=b.dataset.v===$('#fit').value?'on':'sec');
+ $('#Cv').textContent=sci(C,2)+' FLOPs';$('#Nv').textContent=B(N)+' parameters';$('#Sv').textContent=s?B(s)+' tokens':'0 tokens';
+ $('#C').disabled=mode==='life';$('#S').disabled=mode==='fixed';let rows=[];
+ if(mode==='fixed'){const o=CB.optC(f,C),D=C/(6*N),L=CB.lossC(f,N,C);
+  rows=[['Training tokens D = C / (6N)',B(D)+' tokens'],['Tokens per parameter',(D/N).toFixed(1)],['Predicted loss',L.toFixed(3)+' nats/token'],['Compute-optimal N*',B(o.N)+' parameters'],['Optimal D*',B(o.D)+' tokens ('+(o.D/o.N).toFixed(0)+' per parameter)'],['Loss at the optimum',o.L.toFixed(3)+' nats/token'],['Your gap to the optimum',(L-o.L).toFixed(3)+' nats/token'],['H100-hours at 40% MFU',Math.round(CB.h100h(C)).toLocaleString()+' GPU-hours']];
+  $('#cap').textContent='IsoFLOP curve: predicted loss against model size at fixed compute C (log x-axis). Green dot: optimum. Orange dot: your N. Tap the chart to set N.';drawFixed(f,C,N,o);}
+ else{const Lt=CB.loss(f,8.03e9,15e12),r=CB.lifetime(f,N,Lt,s),o=CB.optLife(f,Lt,s);
+  rows=[['Target loss L* (Course-8B under this fit)',Lt.toFixed(3)+' nats/token'],['Tokens needed at your N',isFinite(r.D)?B(r.D)+' tokens':'unreachable at this size'],['Training FLOPs 6ND',isFinite(r.D)?sci(r.train,2)+' FLOPs':'—'],['Inference FLOPs 2N·S',sci(r.inf,2)+' FLOPs'],['Lifetime FLOPs',isFinite(r.D)?sci(r.tot,2)+' FLOPs':'—'],['Lifetime-optimal N',B(o.N)+' parameters, trained on '+B(o.D)+' tokens'],['Lifetime FLOPs at that N',sci(o.tot,2)+' FLOPs']];
+  $('#cap').textContent='Lifetime compute (training + serving) to reach Course-8B\'s loss, against model size (log axes). Gray: training only. Green dot: lifetime optimum. Orange dot: your N. Tap the chart to set N.';drawLife(f,Lt,s,N,o);}
+ $('#tbl').innerHTML=rows.map(([a,b])=>`<tr><th>${a}</th><td class="num">${b}</td></tr>`).join('');}
+let X=null;
+function axes(w,h,l,b,t,r){const ctx=cv.getContext('2d');return ctx}
+function frame(lo,hi,fy,ylab){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.75:0.42);const F='Inter,"DejaVu Sans",sans-serif';const l=52,r=12,t=12,b=32;
+ X={l,r,w};const x=n=>l+(w-l-r)*(Math.log10(n)-9)/3,y=v=>t+(h-t-b)*(1-fy(v));ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';ctx.textAlign='center';[[1e9,'1B'],[1e10,'10B'],[1e11,'100B'],[1e12,'1T']].forEach(([n,s])=>ctx.fillText(s,x(n),h-16));ctx.fillText('parameters N',(l+w)/2,h-2);return{ctx,w,h,x,y,F}}
+function drawFixed(f,C,N,o){const pts=[];for(let k=0;k<=240;k++){const n=10**(9+3*k/240);pts.push([n,CB.lossC(f,n,C)])}
+ const lo=o.L-0.01,hi=Math.min(Math.max(...pts.map(p=>p[1])),o.L+0.4);const g=frame(9,12,v=>(Math.min(v,hi)-lo)/(hi-lo));const{ctx,x,y,F}=g;
+ ctx.textAlign='right';for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;ctx.fillText(v.toFixed(2),48,y(v)+4)}
+ ctx.strokeStyle='#4C72B0';ctx.lineWidth=3;ctx.beginPath();pts.forEach(([n,v],i)=>i?ctx.lineTo(x(n),y(v)):ctx.moveTo(x(n),y(v)));ctx.stroke();
+ dot(ctx,x(o.N),y(o.L),'#55A868');dot(ctx,x(N),y(CB.lossC(f,N,C)),'#DD8452');}
+function drawLife(f,Lt,s,N,o){const pts=[];for(let k=0;k<=240;k++){const n=10**(9+3*k/240);const r=CB.lifetime(f,n,Lt,s);if(isFinite(r.tot))pts.push([n,r.tot,r.train])}
+ const lo=Math.log10(o.tot)-0.3,hi=lo+2.3;const g=frame(9,12,v=>(Math.log10(v)-lo)/(hi-lo));const{ctx,x,y}=g;ctx.textAlign='right';ctx.fillStyle='#4D4D4D';for(let e=Math.ceil(lo);e<=hi;e++)ctx.fillText('10'+String(e).split('').map(c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[c]).join(''),48,y(10**e)+4);
+ ctx.save();ctx.beginPath();ctx.rect(52,0,g.w,g.h-32);ctx.clip();
+ ctx.strokeStyle='#9a9a9a';ctx.lineWidth=2;ctx.beginPath();pts.forEach(([n,,tr],i)=>i?ctx.lineTo(x(n),y(tr)):ctx.moveTo(x(n),y(tr)));ctx.stroke();
+ ctx.strokeStyle='#4C72B0';ctx.lineWidth=3;ctx.beginPath();pts.forEach(([n,v],i)=>i?ctx.lineTo(x(n),y(v)):ctx.moveTo(x(n),y(v)));ctx.stroke();
+ dot(ctx,x(o.N),y(o.tot),'#55A868');const r=CB.lifetime(f,N,Lt,s);if(isFinite(r.tot))dot(ctx,x(N),y(r.tot),'#DD8452');ctx.restore();}
+function dot(ctx,X,Y,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(X,Y,7,0,7);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke()}
+cv.addEventListener('pointerdown',e=>{if(!X)return;const rc=cv.getBoundingClientRect();const fx=(e.clientX-rc.left-X.l)/(X.w-X.l-X.r);if(fx<0||fx>1)return;$('#N').value=(9+3*fx).toFixed(4);upd()});
+bindRanges(['C','N','S'],upd);onResize(upd);
+</script></body></html>
