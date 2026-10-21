@@ -10,4 +10,7 @@ const WIDGETS=[
 {id:'ch06-kv-calc',title:'KV-cache calculator: how many users fit?',desc:'Ch6 (6.2): bytes per token for MHA/GQA/MQA/MLA/sliding window, HBM budget, users, crossover.'},
 {id:'ch06-specdec-sim',title:'Speculative decoding: when does it pay?',desc:'Ch6 (6.6): tokens per pass, verify cost, speedup vs batch size and the crossover.'}];
 const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, KV cache growth)'},
-{id:'ch02-patchify',title:'From pixels to tokens (patchify, 2 × 2 merge, image tokens in the sequence)'}];
+{id:'ch02-patchify',title:'From pixels to tokens (patchify, 2 × 2 merge, image tokens in the sequence)'},
+{id:'ch06-cont-batching',title:'Continuous batching vs static batching, with a paged KV pool'},
+{id:'ch06-specdec',title:'Speculative decoding: draft, verify in one pass, accept'},
+{id:'ch08-agent-loop',title:'An agent re-reads its past: prefill with and without a prefix cache'}];

@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: Speculative decoding</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>Speculative decoding</h1>
+<video src="ch06-specdec.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> a purple drafter proposes γ = 4 tokens; the target model checks all of them in one pass that reads the same 16 GB of weights as a single token would. Round 1 accepts 3 drafts, rejects the 4th and replaces it with a token sampled from max(0, p − q) (p = target probabilities, q = drafter probabilities). Round 2 accepts all 4 plus a bonus token, giving 9 tokens from 2 target passes. Expected tokens per pass = (1 − α^(γ+1)) / (1 − α), where α is the acceptance rate: 3.36 at α = 0.8, γ = 4. <a href="ch06-specdec.gif">GIF version</a></p>
+</div></body></html>

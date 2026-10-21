@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: Continuous batching</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>Continuous batching</h1>
+<video src="ch06-cont-batching.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> with static batching, a group of 6 requests starts together and every slot waits (gray) until the longest one finishes. With continuous batching, a queued request joins the moment a slot frees up, after a one-step prefill (orange). Below, the paged key-value (KV) cache pool hands out 16-token blocks (2 MiB each for Course-8B) one at a time and frees them when a request ends. On the same GPU this gives 1.54× the tokens per second (Exercise 6.3.1). <a href="ch06-cont-batching.gif">GIF version</a></p>
+</div></body></html>
