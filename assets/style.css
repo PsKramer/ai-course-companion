@@ -25,7 +25,7 @@ th{color:var(--fg);font-weight:600}.num{font-variant-numeric:tabular-nums;text-a
 code{background:#f1f2f4;padding:1px 4px;border-radius:4px;font-size:.88em}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 a{color:var(--data)}
-@media (max-width:480px){.wrap{padding:10px}h1{font-size:1.08rem}label{min-width:130px}.big{font-size:1.02rem}table{font-size:.82rem}}
+@media (max-width:480px){.num{white-space:normal;overflow-wrap:anywhere}th{width:52%}td,th{padding:4px 3px}.card{padding:10px}.wrap{padding:10px}h1{font-size:1.08rem}label{min-width:130px}.big{font-size:1.02rem}table{font-size:.82rem}}
 label b,label .v{text-transform:none;letter-spacing:0}
 label select,label input[type=number]{text-transform:none;letter-spacing:0;font-weight:400}
 th{font-weight:700}
