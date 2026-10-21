@@ -1,0 +1,71 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KV-cache calculator</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>Key-value (KV) cache calculator: how many users fit?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B (L = 32 layers, h<sub>kv</sub> = 8 KV heads, d<sub>h</sub> = 128 dimensions per head, bf16) with grouped-query attention (GQA) on one H100 at 8,192 tokens of context. Switch to multi-head attention (MHA) and count the users that fit.</li>
+<li>Choose multi-head latent attention (MLA-style, 576 numbers per layer per token) with FP8 KV.</li>
+<li>Set context to 131,072 tokens and 8 users, then find the smallest GPU that holds them.</li></ol></div>
+<div class="card">
+<div class="row">
+<label>Attention type<select id="type"><option value="mha">MHA: multi-head attention (h_kv = h = 32)</option><option value="gqa" selected>GQA: grouped-query attention (h_kv = 8)</option><option value="mqa">MQA: multi-query attention (h_kv = 1)</option><option value="mla">MLA-style: one compressed latent per layer</option><option value="swa">Sliding-window hybrid (local + global layers)</option></select></label>
+<label>Model preset<select id="pre"><option value="c8">Course-8B (8.03 billion parameters)</option><option value="dsv3">DeepSeek-V3 (671 billion parameters, MLA 512 + 64)</option></select></label>
+</div><div class="row">
+<label><span class="lt">Layers <span class="nt">L</span>: </span><b id="Lv"></b><input type="range" id="L" min="1" max="128" step="1" value="32"></label>
+<label><span class="lt">KV heads <span class="nt">h<sub>kv</sub></span>: </span><b id="hv"></b><input type="range" id="hkv" min="1" max="128" step="1" value="8"></label>
+<label><span class="lt">Head dimension <span class="nt">d<sub>h</sub></span>: </span><b id="dv"></b><input type="range" id="dh" min="64" max="256" step="64" value="128"></label>
+</div><div class="row" id="mlarow">
+<label><span class="lt">MLA latent width <span class="nt">d<sub>c</sub> + d<sub>R</sub></span>: </span><b id="dcv"></b><input type="range" id="dc" min="64" max="1024" step="32" value="576"></label></div>
+<div class="row" id="swarow">
+<label><span class="lt">Window <span class="nt">W</span>: </span><b id="Wv"></b><input type="range" id="W" min="9" max="15" step="1" value="12"></label>
+<label>Global (full-attention) layers: <b id="Lgv"></b><input type="range" id="Lg" min="0" max="32" step="1" value="8"></label></div>
+<div class="row">
+<label>KV precision<select id="bkv"><option value="2">bf16 (2 bytes)</option><option value="1">FP8 (1 byte)</option><option value="0.5">4-bit (0.5 byte)</option></select></label>
+<label>Weight precision<select id="bw"><option value="2">bf16 (2 bytes)</option><option value="1">FP8 (1 byte)</option><option value="0.5">4-bit (0.5 byte)</option></select></label>
+<label>GPU<select id="gpu"><option value="80,3.35">H100: 80 GB, 3.35 TB/s</option><option value="141,4.8">H200: 141 GB, 4.8 TB/s</option><option value="180,7.7">B200: 180 GB, 7.7 TB/s</option><option value="288,8">MI355X: 288 GB, 8 TB/s</option></select></label>
+</div><div class="row">
+<label><span class="lt">Parameters <span class="nt">N</span>: </span><b id="Nv"></b><input type="range" id="N" min="9" max="12" step="0.0001" value="9.9047"></label>
+<label><span class="lt">Context <span class="nt">T</span>: </span><b id="Tv"></b><input type="range" id="T" min="10" max="20" step="1" value="13"></label>
+<label>Concurrent users: <b id="Uv"></b><input type="range" id="U" min="1" max="512" step="1" value="1"></label>
+</div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">Top bar: high-bandwidth memory (HBM) split into weights, the KV cache your users need, and 10% headroom. Bottom bar: bytes read per decode step, weights against KV, with a marker where KV overtakes the weights.</div></div>
+<div class="card"><table>
+<tr><th>KV bytes per token s<sub>kv</sub></th><td class="num big" id="s"></td></tr>
+<tr><th>KV per sequence at context T</th><td class="num" id="seq"></td></tr>
+<tr><th>KV budget = HBM − weights − 10% headroom</th><td class="num" id="bud"></td></tr>
+<tr><th>Max tokens in flight (all users together)</th><td class="num" id="tok"></td></tr>
+<tr><th>Max users at this context</th><td class="num big" id="users"></td></tr>
+<tr><th>Your users need</th><td class="num" id="need"></td></tr>
+<tr><th>Crossover (B·T)* = N·b<sub>w</sub> / s<sub>kv</sub>: tokens in flight where KV bytes equal weight bytes</th><td class="num" id="cross"></td></tr>
+<tr><th>Decode step at your load (memory-bound)</th><td class="num" id="step"></td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Context × concurrency is conserved per GPU: the budget holds a fixed number of tokens, whether that's 52 users at 8,192 tokens or 3 users at 131,072. Past about 122,500 tokens in flight for Course-8B, KV bytes exceed weight bytes in every decode step, so shrinking the cache (GQA, MLA, FP8 KV) buys more than shrinking the weights.</div>
+<div class="model"><b>Model</b> (as in 6.2). s<sub>kv</sub> = 2·L·h<sub>kv</sub>·d<sub>h</sub>·b (keys and values, every layer). MLA-style caches one latent per layer: L·(d<sub>c</sub> + d<sub>R</sub>)·b. Sliding-window hybrid, averaged over the context: (2·h<sub>kv</sub>·d<sub>h</sub>·b / T)·(L<sub>g</sub>·T + L<sub>loc</sub>·min(T, W)), where L<sub>g</sub> = global layers and L<sub>loc</sub> = L − L<sub>g</sub> local layers. Budget = HBM − N·b<sub>w</sub> − 10% of HBM for activations and fragmentation. Decode step time = (weights + users·T·s<sub>kv</sub>) / bandwidth, the memory-bound model from 1.3.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');const GB=v=>(v/1e9).toFixed(v<1e10?2:1)+' GB';
+$('#type').addEventListener('input',()=>{const t=$('#type').value;if(t==='mha')$('#hkv').value=32;if(t==='gqa'||t==='swa')$('#hkv').value=8;if(t==='mqa')$('#hkv').value=1;upd()});
+$('#pre').addEventListener('input',()=>{if($('#pre').value==='dsv3'){$('#type').value='mla';$('#L').value=61;$('#dc').value=576;$('#N').value=Math.log10(671e9);$('#bw').value=1}else{$('#type').value='gqa';$('#L').value=32;$('#hkv').value=8;$('#dh').value=128;$('#N').value=9.9047;$('#bw').value=2}upd()});
+['bkv','bw','gpu'].forEach(i=>$('#'+i).addEventListener('input',upd));
+function opts(){const g=$('#gpu').value.split(',').map(Number);return{type:$('#type').value,L:val('L'),hkv:val('hkv'),dh:val('dh'),dc:val('dc'),W:2**val('W'),Lg:val('Lg'),bkv:val('bkv'),bw:val('bw'),N:Number((10**val('N')).toPrecision(3)),T:2**val('T'),users:val('U'),hbm:g[0]*1e9,bwth:g[1]*1e12}}
+function upd(){const o=opts(),r=KVC.calc(o);
+ $('#mlarow').style.display=o.type==='mla'?'flex':'none';$('#swarow').style.display=o.type==='swa'?'flex':'none';
+ $('#Lv').textContent=o.L+' layers';$('#hv').textContent=o.hkv+' heads';$('#dv').textContent=o.dh+' dimensions';$('#dcv').textContent=o.dc+' numbers per layer';$('#Wv').textContent=o.W.toLocaleString()+' tokens';$('#Lgv').textContent=Math.min(o.Lg,o.L)+' of '+o.L+' layers';
+ $('#Nv').textContent=fmt(o.N,2).replace('G',' billion').replace('T',' trillion')+' parameters';$('#Tv').textContent=o.T.toLocaleString()+' tokens';$('#Uv').textContent=o.users+(o.users===1?' user':' users');
+ $('#s').textContent=Math.round(r.s).toLocaleString()+' bytes per token ('+(r.s/1024).toFixed(1)+' KiB)';$('#seq').textContent=GB(r.perSeq);
+ $('#bud').textContent=r.budget>0?GB(r.budget):'none: weights do not fit';$('#tok').textContent=Math.round(r.tokens).toLocaleString()+' tokens';$('#users').textContent=r.users.toLocaleString()+' users';
+ $('#need').textContent=GB(r.need)+(r.fits?' (fits)':' (does not fit)');$('#cross').textContent=Math.round(r.cross).toLocaleString()+' tokens';
+ $('#step').textContent=r.stepMs.toFixed(1)+' ms: '+(r.kvStep>r.w?'KV':'weights')+' dominate ('+GB(r.w)+' weights + '+GB(r.kvStep)+' KV)';
+ $('#warn').textContent=r.budget<=0?`The weights alone (${GB(r.w)}) leave no KV budget on this GPU: shard across GPUs.`:!r.fits?`${o.users} users × ${o.T.toLocaleString()} tokens need ${GB(r.need)} of KV cache, more than the ${GB(r.budget)} budget.`:'';
+ draw(o,r);}
+function draw(o,r){const narrow=cv.clientWidth<520;const{ctx,w,h}=setupCanvas(cv,narrow?0.62:0.3);const F='Inter,"DejaVu Sans",sans-serif';ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);
+ const l=10,bw=w-2*l,bh=h*0.17;
+ function bar(y,parts,total,title){ctx.font='800 11px '+F;ctx.fillStyle='#262626';ctx.textAlign='left';ctx.fillText(title,l,y-6);let x=l;
+  ctx.fillStyle='#E4DACA';ctx.beginPath();ctx.roundRect(l,y,bw,bh,8);ctx.fill();
+  parts.forEach(([v,c,lab])=>{const ww=Math.max(0,Math.min(bw-(x-l),bw*v/total));if(ww<=0)return;ctx.fillStyle=c;ctx.fillRect(x,y,ww,bh);ctx.fillStyle='#fff';ctx.font='700 '+(narrow?10:12)+'px '+F;ctx.textAlign='center';if(ww>60)ctx.fillText(lab,x+ww/2,y+bh/2+4);x+=ww});}
+ const tot=Math.max(o.hbm,r.w+r.need+r.head);
+ bar(h*0.14,[[r.w,'#DD8452','weights '+GB(r.w)],[r.need,r.fits?'#55A868':'#C44E52','KV '+GB(r.need)],[r.head,'#9a9a9a','headroom']],tot,'HBM: '+(o.hbm/1e9)+' GB'+(tot>o.hbm?' (over capacity)':''));
+ if(tot>o.hbm){const X=l+bw*o.hbm/tot;ctx.strokeStyle='#C44E52';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(X,h*0.14-4);ctx.lineTo(X,h*0.14+bh+4);ctx.stroke()}
+ const y2=h*0.62,st=r.w+r.kvStep;bar(y2,[[r.w,'#DD8452','weights'],[r.kvStep,'#55A868','KV']],st,'BYTES READ PER DECODE STEP: '+GB(st));
+ const tokNow=o.users*o.T;ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';ctx.textAlign='left';ctx.fillText(`tokens in flight ${tokNow.toLocaleString()} vs crossover ${Math.round(r.cross).toLocaleString()}: `+(tokNow>r.cross?'KV dominates':'weights dominate'),l,y2+bh+16);}
+bindRanges(['L','hkv','dh','dc','W','Lg','N','T','U'],upd);onResize(upd);
+</script></body></html>

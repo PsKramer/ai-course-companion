@@ -1,0 +1,56 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speculative decoding simulator</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
+<h1>Speculative decoding: when does it pay?</h1>
+<div class="try"><h2>Try this</h2><ol>
+<li>Defaults: Course-8B (8.03 billion parameters, bf16, 131,072 bytes of key-value (KV) cache per token) on one H100 with a 1.5 GB drafter, draft length γ = 4, batch size B = 1. Drag the acceptance rate α from 0.5 to 0.9.</li>
+<li>Set context T = 128 tokens and raise B to 128: the speedup falls below 1.</li>
+<li>Switch T back to 4,096 tokens and watch the crossover move right.</li></ol></div>
+<div class="card">
+<div class="row">
+<label><span class="lt">Acceptance rate <span class="nt">α</span> (chance each drafted token is kept): </span><b id="av"></b><input type="range" id="a" min="0.3" max="0.97" step="0.01" value="0.8"></label>
+<label><span class="lt">Draft length <span class="nt">γ</span> (tokens proposed per round): </span><b id="gv"></b><input type="range" id="g" min="0" max="8" step="1" value="4"></label>
+</div><div class="row">
+<label><span class="lt">Batch size <span class="nt">B</span>: </span><b id="Bv"></b><input type="range" id="B" min="0" max="9" step="0.01" value="0"></label>
+<label><span class="lt">Context <span class="nt">T</span>: </span><b id="Tv"></b><input type="range" id="T" min="7" max="15" step="1" value="12"></label>
+</div><div class="row">
+<label>Compute efficiency (share of peak FLOP/s): <b id="ev"></b><input type="range" id="e" min="25" max="100" step="1" value="50"></label>
+<label>Drafter size: <b id="dv"></b><input type="range" id="d" min="0.1" max="8" step="0.1" value="1.5"></label>
+<label>GPU<select id="gpu"><option value="3.35,989">H100: 3.35 TB/s, 989 TFLOP/s bf16</option><option value="4.8,989">H200: 4.8 TB/s, 989 TFLOP/s bf16</option><option value="7.7,2250">B200: 7.7 TB/s, 2,250 TFLOP/s bf16</option></select></label>
+</div></div>
+<div class="card"><canvas id="cv"></canvas><div class="mut">Speedup from speculation against batch size B (log scale) at your settings. Below the dashed line (speedup = 1) speculation slows you down. Orange dot: your B.</div></div>
+<div class="card"><table>
+<tr><th>Expected tokens per target pass, (1 − α<sup>γ+1</sup>) / (1 − α)</th><td class="num big" id="tau"></td></tr>
+<tr><th>Normal decode step</th><td class="num" id="ns"></td></tr>
+<tr><th>Verify step (checks γ + 1 positions per sequence)</th><td class="num" id="vs"></td></tr>
+<tr><th>Drafting time per round</th><td class="num" id="ds"></td></tr>
+<tr><th>Throughput without speculation</th><td class="num" id="t0"></td></tr>
+<tr><th>Throughput with speculation</th><td class="num" id="t1"></td></tr>
+<tr><th>Speedup</th><td class="num big" id="sp"></td></tr>
+<tr><th>Crossover (smallest B where speedup &lt; 1)</th><td class="num" id="cx"></td></tr>
+</table><div id="warn" class="warn"></div></div>
+<div class="notice hidden"><h2>What to notice</h2>Speculation turns idle compute into tokens. At small batch the verify step costs the same as a normal step, because both are paid in bytes read, so every accepted token is nearly free. As B grows, verifying γ + 1 positions per sequence makes the step compute-bound and the gain turns into a loss. Longer context keeps the step memory-bound longer, so the crossover moves right.</div>
+<div class="model"><b>Model</b> (as in 6.6). Bytes per step = 2N (bf16 weights) + B·T·131,072 (KV cache). Normal step = max(bytes / bandwidth, 2N·B / (efficiency·peak)). Verify step = max(bytes / bandwidth, 2N·B·(γ + 1) / (efficiency·peak)); the drafted tokens' own KV entries are ignored. Draft time = γ·drafter bytes / bandwidth. Throughput = B / normal step without speculation and B·τ / (verify + draft) with it, where τ is the expected tokens per target pass.</div>
+</div>
+<script src="../../assets/common.js"></script><script src="model.js"></script><script>
+const cv=$('#cv');
+function opts(){const g=$('#gpu').value.split(',').map(Number);return{a:val('a'),g:val('g'),B:Math.max(1,Math.round(2**val('B'))),T:2**val('T'),eff:val('e')/100,draftGB:val('d'),bw:g[0]*1e12,peak:g[1]*1e12}}
+function upd(){const o=opts(),r=SDS.calc(o);
+ $('#av').textContent=o.a.toFixed(2);$('#gv').textContent=o.g+' tokens';$('#Bv').textContent=o.B+(o.B===1?' sequence':' sequences');$('#Tv').textContent=o.T.toLocaleString()+' tokens';$('#ev').textContent=val('e')+'%';$('#dv').textContent=o.draftGB.toFixed(1)+' GB';
+ $('#tau').textContent=r.tau.toFixed(2)+' tokens';$('#ns').textContent=(r.normal*1e3).toFixed(2)+' ms';$('#vs').textContent=(r.verify*1e3).toFixed(2)+' ms ('+(r.memBound?'memory-bound':'compute-bound')+')';$('#ds').textContent=(r.draft*1e3).toFixed(2)+' ms';
+ $('#t0').textContent=Math.round(r.base).toLocaleString()+' tokens/s';$('#t1').textContent=Math.round(r.spec).toLocaleString()+' tokens/s';$('#sp').textContent=r.speedup.toFixed(2)+'×';
+ const cx=SDS.crossover(o);$('#cx').textContent=cx&&cx<=512?'B = '+cx+' sequences':'none up to B = 512';
+ const kv=o.B*o.T*131072;$('#warn').textContent=kv>80e9-2*8.03e9?`Note: ${o.B} sequences × ${o.T.toLocaleString()} tokens need ${(kv/1e9).toFixed(0)} GB of KV cache, more than an 80 GB H100 holds next to the weights; the model is optimistic here.`:'';
+ draw(o,cx);}
+function draw(o,cx){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.75:0.4);const F='Inter,"DejaVu Sans",sans-serif';const l=40,rr=12,t=12,b=30;
+ const pts=[];for(let k=0;k<=180;k++){const B=Math.max(1,Math.round(2**(9*k/180)));pts.push([B,SDS.calc({...o,B}).speedup])}
+ const mx=Math.max(1.5,...pts.map(p=>p[1]))*1.1;const x=B=>l+(w-l-rr)*Math.log2(B)/9,y=v=>t+(h-t-b)*(1-v/mx);
+ ctx.clearRect(0,0,w,h);ctx.fillStyle='#FBF7EF';ctx.fillRect(0,0,w,h);ctx.font='11px '+F;ctx.fillStyle='#4D4D4D';ctx.strokeStyle='#E4DACA';ctx.lineWidth=1;
+ for(let v=0;v<=mx;v+=mx>4?1:0.5){ctx.beginPath();ctx.moveTo(l,y(v));ctx.lineTo(w-rr,y(v));ctx.stroke();ctx.textAlign='right';ctx.fillText(v.toFixed(1)+'×',l-4,y(v)+4)}
+ ctx.textAlign='center';[1,4,16,64,256,512].forEach(B=>ctx.fillText(B,x(B),h-14));ctx.fillText('batch size B',(l+w)/2,h-1);
+ ctx.setLineDash([5,4]);ctx.strokeStyle='#C44E52';ctx.beginPath();ctx.moveTo(l,y(1));ctx.lineTo(w-rr,y(1));ctx.stroke();ctx.setLineDash([]);
+ ctx.strokeStyle='#8172B3';ctx.lineWidth=3;ctx.beginPath();pts.forEach(([B,v],i)=>i?ctx.lineTo(x(B),y(v)):ctx.moveTo(x(B),y(v)));ctx.stroke();
+ if(cx&&cx<=512){ctx.fillStyle='#C44E52';ctx.beginPath();ctx.arc(x(cx),y(1),5,0,7);ctx.fill();ctx.font='700 11px '+F;ctx.textAlign=x(cx)>w*0.7?'right':'left';ctx.fillText('crossover B = '+cx,x(cx)+(x(cx)>w*0.7?-6:6),y(1)-8)}
+ const s=SDS.calc(o).speedup;ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(x(o.B),y(s),7,0,7);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();}
+$('#gpu').addEventListener('input',upd);
+bindRanges(['a','g','B','T','e','d'],upd);onResize(upd);
+</script></body></html>
