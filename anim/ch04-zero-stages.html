@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: What ZeRO shards</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>What ZeRO shards</h1>
+<video src="ch04-zero-stages.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> the Zero Redundancy Optimizer (ZeRO) shards Course-8B's training state across an 8-GPU group. Plain distributed data parallel (DDP) keeps 129 GB per GPU (16 bytes per parameter), well over an H100's 80 GB. Stage 1 splits the 96 GB of fp32 master weights and Adam state (44 GB per GPU), stage 2 also splits the gradients (30 GB), and stage 3 / fully sharded data parallel (FSDP) splits the weights too (16 GB), but must all-gather each layer's weights just before that layer runs. Stages 1 and 2 cost no extra traffic; stage 3 sends 1.5× the gradient all-reduce. <a href="ch04-zero-stages.gif">GIF version</a></p>
+</div></body></html>

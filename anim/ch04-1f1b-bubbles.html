@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animation: Pipeline bubbles: GPipe vs 1F1B</title><link rel="stylesheet" href="../assets/style.css"><style>video{width:100%;border-radius:14px;display:block}</style></head><body><div class="wrap">
+<h1>Pipeline bubbles: GPipe vs 1F1B</h1>
+<video src="ch04-1f1b-bubbles.mp4" autoplay loop muted playsinline controls></video>
+<p class="model"><b>Watch for:</b> 4 pipeline stages and 8 micro-batches, with each backward pass taking twice as long as a forward pass. GPipe runs all forwards and then all backwards, so stage 0 holds activations for all 8 micro-batches. One-forward-one-backward (1F1B) alternates after a warmup and holds at most 4 (p). The idle time is the same in both: (p − 1)/(m + p − 1) = 3/11 = 27%. Only more micro-batches (m = 32 gives 9%) or interleaving shrink it. <a href="ch04-1f1b-bubbles.gif">GIF version</a></p>
+</div></body></html>

@@ -16,4 +16,6 @@ const ANIMS=[{id:'ch01-life-of-token',title:'Life of a token (prefill, decode, K
 {id:'ch02-patchify',title:'From pixels to tokens (patchify, 2 × 2 merge, image tokens in the sequence)'},
 {id:'ch06-cont-batching',title:'Continuous batching vs static batching, with a paged KV pool'},
 {id:'ch06-specdec',title:'Speculative decoding: draft, verify in one pass, accept'},
-{id:'ch08-agent-loop',title:'An agent re-reads its past: prefill with and without a prefix cache'}];
+{id:'ch08-agent-loop',title:'An agent re-reads its past: prefill with and without a prefix cache'},
+{id:'ch04-zero-stages',title:'What ZeRO shards: DDP → ZeRO-1 → ZeRO-2 → ZeRO-3/FSDP'},
+{id:'ch04-1f1b-bubbles',title:'Pipeline bubbles: GPipe vs 1F1B'}];
