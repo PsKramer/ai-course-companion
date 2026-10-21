@@ -26,7 +26,7 @@
 <tr id="attrow" style="display:none"><th>Attention share of C <span class="mut" id="ld"></span></th><td class="num" id="ash"></td></tr>
 </table>
 <canvas id="cv"></canvas>
-<div class="mut">Reference runs, training compute C (Epoch AI). Your run is the orange marker.</div>
+<div class="mut">Reference runs, training compute C (Epoch AI). Your run is the orange YOU marker.</div>
 </div>
 <div class="notice hidden"><h2>What to notice</h2>Cost is linear in both N and D, so overtraining a small model (Course-8B sees ~1,900 tokens/param, ~90× Chinchilla) is cheap next to training a bigger one, and pays back at inference where cost scales with N. For 405B, 6ND gives ≈3.8×10²⁵ FLOP and ≈27M GPU-hours at 40% MFU vs 30.84M reported: the gap is real-world MFU (Meta reports 38–43%), attention FLOPs, and failures/restarts. MFU is a direct multiplier on the bill.</div>
 <div class="model"><b>Model.</b> C ≈ 6·N·D (2ND forward + 4ND backward per token; dense model, for MoE use N_act). The attention option adds Kaplan et al. (2020)'s per-token term 2·L·T·d forward, ×3 for forward+backward, with L and d estimated from N ≈ 12·L·d² at d/L = 128. GPU-hours = C / (peak · MFU · 3600). Cost is GPU rental only; ablations, failed runs, data, and staff push real budgets several times higher. Reference values: Epoch AI notable-models database (est. = Epoch estimate; lab has not published).</div>
@@ -47,14 +47,22 @@ function upd(){
  $('#gh').textContent=fmt(gh,2);$('#days').textContent=(gh/G/24).toFixed(1);$('#cost').textContent='$'+fmt(gh*P,2);
  $('#ld').textContent=`(L≈${L.toFixed(0)}, d≈${d.toFixed(0)})`;$('#ash').textContent=(100*Ca/C).toFixed(1)+'%';
  draw(C);}
-function draw(C){const{ctx,w,h}=setupCanvas(cv,cv.clientWidth<520?0.6:0.32);const lo=22,hi=27.5,x=v=>14+(w-28)*(Math.log10(v)-lo)/(hi-lo);
- ctx.clearRect(0,0,w,h);ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(14,h*0.5);ctx.lineTo(w-14,h*0.5);ctx.stroke();
- ctx.font='11px sans-serif';ctx.fillStyle='#4D4D4D';ctx.textAlign='center';
- for(let e=22;e<=27;e++){ctx.fillRect(x(10**e)-0.5,h*0.5-4,1,8);ctx.fillText('1e'+e,x(10**e),h*0.5+16)}
- REF.forEach(([n,c],i)=>{const X=x(c);ctx.fillStyle='#4C72B0';ctx.beginPath();ctx.arc(X,h*0.5,4,0,7);ctx.fill();
-  ctx.save();ctx.translate(X,h*0.5-8);ctx.rotate(-0.6);ctx.textAlign='left';ctx.fillText(n,0,0);ctx.restore();});
- const X=Math.max(14,Math.min(w-14,x(C)));ctx.fillStyle='#DD8452';ctx.beginPath();ctx.moveTo(X,h*0.5+22);ctx.lineTo(X-6,h*0.5+34);ctx.lineTo(X+6,h*0.5+34);ctx.fill();
- ctx.fillText('you',X,h*0.5+46);}
+function draw(C){const narrow=cv.clientWidth<520;const{ctx,w,h}=setupCanvas(cv,narrow?0.95:0.42);const lo=22.5,hi=27,pad=18;const x=v=>pad+(w-2*pad)*(Math.log10(v)-lo)/(hi-lo);
+ ctx.clearRect(0,0,w,h);const F='Inter,"DejaVu Sans",sans-serif';const ay=h*0.5;
+ // axis bar
+ ctx.fillStyle='#E4DACA';ctx.beginPath();ctx.roundRect(pad-6,ay-7,w-2*pad+12,14,7);ctx.fill();
+ ctx.font='600 10px '+F;ctx.fillStyle='#4D4D4D';ctx.textAlign='center';
+ for(let e=23;e<=27;e++){ctx.fillText('10'+['²³','²⁴','²⁵','²⁶','²⁷'][e-23],x(10**e),ay+4)}
+ // reference labels on leader lines, alternating above/below, staggered heights
+ const lv=narrow?[0.40,0.27,0.14]:[0.36,0.2];
+ REF.forEach(([n,c],i)=>{const X=x(c),up=i%2===0,k=Math.floor(i/2)%lv.length;const ly=up?ay-h*lv[k]-10:ay+h*lv[k]+10;
+  ctx.strokeStyle='#4D4D4D';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(X,up?ay-8:ay+8);ctx.lineTo(X,ly+(up?6:-14));ctx.stroke();
+  ctx.fillStyle='#4C72B0';ctx.beginPath();ctx.arc(X,ay,5,0,7);ctx.fill();ctx.strokeStyle='#FBF7EF';ctx.lineWidth=2;ctx.stroke();
+  let al=X<w*0.2?'left':X>w*0.8?'right':'center';ctx.textAlign=al;ctx.fillStyle='#262626';ctx.font='800 11px '+F;ctx.fillText(n.toUpperCase(),X,ly);
+  ctx.font='400 11px '+F;ctx.fillStyle='#4D4D4D';ctx.fillText(sci(c,1)+' FLOP',X,ly+13);});
+ // you marker
+ const X=Math.max(pad,Math.min(w-pad,x(C)));ctx.fillStyle='#DD8452';ctx.beginPath();ctx.arc(X,ay,9,0,7);ctx.fill();ctx.strokeStyle='#FBF7EF';ctx.lineWidth=3;ctx.stroke();
+ ctx.fillStyle='#fff';ctx.font='800 9px '+F;ctx.textAlign='center';ctx.fillText('YOU',X,ay+3);}
 $('#chin').onclick=()=>{$('#D').value=Math.min(14,Math.max(9,val('N')+Math.log10(20)));upd()};
 ['acc','cust','att'].forEach(i=>$('#'+i).addEventListener('input',upd));
 bindRanges(['N','D','G','M','P','T'],upd);onResize(upd);

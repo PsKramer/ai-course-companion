@@ -2,18 +2,20 @@
 <title>Pipeline map</title><link rel="stylesheet" href="../../assets/style.css">
 <style>
 .flow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:stretch}
-.st{min-width:0;min-height:58px;border-radius:10px;border:2px solid var(--c);background:#fff;color:var(--ink);font-size:.8rem;overflow-wrap:anywhere;font-weight:600;padding:6px 8px;display:flex;flex-direction:column;justify-content:center;text-align:center;position:relative}
-.st small{font-weight:400;color:var(--fg);font-size:.72rem}
-.st.sel{border-width:3px;background:color-mix(in srgb,var(--c) 14%,#fff);box-shadow:0 0 0 2px var(--c)}
+.st{min-width:0;min-height:62px;border-radius:16px;border:3px solid var(--paper2);background:var(--c);color:#fff;font-size:.8rem;overflow-wrap:anywhere;font-weight:600;padding:6px 8px;display:flex;flex-direction:column;justify-content:center;text-align:center;position:relative}
+.st small{font-weight:600;color:rgba(255,255,255,.85);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.st.sel{border-color:#262626;box-shadow:0 0 0 2px #262626;transform:translateY(-2px)}
+.st{font-weight:800!important;padding:6px 6px!important}
 .arrow{align-self:center;color:#9a9a9a;font-size:1rem}
 .hw{margin-top:4px;grid-column:1/-1}
-.st:not(.hw)::after{content:'→';position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:#9a9a9a;font-weight:400;font-size:.8rem;z-index:1}
+.st:not(.hw)::after{content:'▶';position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:#4D4D4D;font-weight:400;font-size:.8rem;z-index:1}
 .st:nth-child(7)::after{content:''}
-.panel h2{margin:0 0 6px;font-size:1.02rem}
+.panel h2{margin:0 0 6px;font-size:1rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.panel{border-left:8px solid var(--pc)}
 .panel table th{width:32%}
-.chip{display:inline-block;border-radius:999px;padding:1px 8px;font-size:.75rem;color:#fff;background:var(--c);margin-left:6px;vertical-align:middle}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.72rem;font-weight:700;color:#fff;background:var(--c);margin-left:6px;vertical-align:middle}
 @media (max-width:640px){.flow{grid-template-columns:repeat(3,1fr)}.st:nth-child(3n)::after{content:''}}
-@media (max-width:420px){.flow{grid-template-columns:repeat(2,1fr)}.st:nth-child(3n)::after{content:'→'}.st:nth-child(2n)::after{content:''}}
+@media (max-width:420px){.flow{grid-template-columns:repeat(2,1fr)}.st:nth-child(3n)::after{content:'▶'}.st:nth-child(2n)::after{content:''}}
 </style></head><body><div class="wrap">
 <h1>The full pipeline, stage by stage</h1>
 <div class="try"><h2>Try this</h2><ol><li>Tap Tokenizer, then Inference / Serving, and compare their dominant costs.</li><li>Find the two stages that share the KV-cache concept.</li><li>Tap Hardware / Cluster: it sits under every other stage.</li></ol></div>
@@ -36,6 +38,6 @@ const flow=$('#flow');let sel='data';
 function render(){flow.innerHTML='';S.forEach((s,i)=>{if(s.id==='hw')return;const b=document.createElement('button');b.className='st'+(sel===s.id?' sel':'');b.style.setProperty('--c',s.c);b.innerHTML=`${i+1}. ${s.n}<small>${s.ch}</small>`;b.onclick=()=>{sel=s.id;render()};flow.appendChild(b);});
  const s=S[7];const b=document.createElement('button');b.className='st hw'+(sel===s.id?' sel':'');b.style.setProperty('--c',s.c);b.innerHTML=`${s.n} — under every stage<small>${s.ch}</small>`;b.onclick=()=>{sel=s.id;render()};flow.appendChild(b);
  const p=S.find(x=>x.id===sel);const code=t=>t.replace(/`([^`]+)`/g,'<code>$1</code>');
- $('#panel').innerHTML=`<h2>${p.n}<span class="chip" style="--c:${p.c}">${p.ch}</span></h2><table><tr><th>Input</th><td>${code(p.in)}</td></tr><tr><th>Output artifact</th><td>${code(p.out)}</td></tr><tr><th>Dominant cost</th><td>${code(p.cost)}</td></tr><tr><th>Key knobs</th><td>${code(p.knobs)}</td></tr></table>`;}
+ $('#panel').style.setProperty('--pc',p.c);$('#panel').innerHTML=`<h2>${p.n}<span class="chip" style="--c:${p.c}">${p.ch}</span></h2><table><tr><th>Input</th><td>${code(p.in)}</td></tr><tr><th>Output artifact</th><td>${code(p.out)}</td></tr><tr><th>Dominant cost</th><td>${code(p.cost)}</td></tr><tr><th>Key knobs</th><td>${code(p.knobs)}</td></tr></table>`;}
 render();
 </script></body></html>
