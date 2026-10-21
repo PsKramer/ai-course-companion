@@ -1,16 +1,16 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Training cost calculator (C = 6ND)</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
 <h1>Training compute &amp; cost: C ≈ 6·N·D</h1>
-<div class="try"><h2>Try this</h2><ol><li>Defaults are Llama 3.1 405B (N = 405B, D = 15.6T tokens, 16,384 H100s, 40% MFU). Check C against the reported 3.8×10²⁵ FLOP.</li><li>Press <i>Chinchilla D = 20N</i> and compare cost and D/N with the real run.</li><li>Switch H100 → B200, then halve MFU.</li></ol></div>
+<div class="try"><h2>Try this</h2><ol><li>Defaults are Course-8B (Llama-3.1-8B-like: N = 8.03B, D = 15T tokens) on 512 H100s at 40% MFU. Press <i>Chinchilla D = 20N</i> and compare GPU-hours with the 15T default.</li><li>Set N = 405B, D = 15.6T, 16,384 GPUs (Llama 3.1 405B) and compare with Meta's reported 30.84M H100-hours.</li><li>Drop MFU to 20%.</li></ol></div>
 <div class="card"><div class="row">
-<label>Parameters N: <span class="big" id="Nv"></span><input type="range" id="N" min="8" max="12.301" step="0.001" value="11.607"></label>
-<label>Training tokens D: <span class="big" id="Dv"></span><input type="range" id="D" min="9" max="14" step="0.001" value="13.193"></label>
+<label>Parameters N: <span class="big" id="Nv"></span><input type="range" id="N" min="8" max="12.301" step="0.001" value="9.9047"></label>
+<label>Training tokens D: <span class="big" id="Dv"></span><input type="range" id="D" min="9" max="14" step="0.001" value="13.1761"></label>
 </div><div class="row" style="margin-top:6px">
 <button id="chin">Chinchilla D = 20N</button>
 <label style="flex:0 1 220px">Accelerator<select id="acc"><option value="989e12">H100 SXM — BF16 dense 989 TFLOP/s</option><option value="2.25e15">B200 — BF16 dense ~2.25 PFLOP/s</option><option value="custom">Custom…</option></select></label>
 <label id="custL" style="display:none;flex:0 1 160px">Custom peak (TFLOP/s)<input type="number" id="cust" value="1000" min="1"></label>
 </div><div class="row" style="margin-top:6px">
-<label>#GPUs: <b id="Gv"></b><input type="range" id="G" min="0.903" max="5.301" step="0.001" value="4.21442"></label>
+<label>#GPUs: <b id="Gv"></b><input type="range" id="G" min="0.903" max="5.301" step="0.001" value="2.70927"></label>
 <label>MFU: <b id="Mv"></b><input type="range" id="M" min="10" max="70" step="1" value="40"></label>
 <label>$/GPU-hour: <b id="Pv"></b><input type="range" id="P" min="0.5" max="8" step="0.05" value="2.5"></label>
 </div>
@@ -28,7 +28,7 @@
 <canvas id="cv"></canvas>
 <div class="mut">Reference runs, training compute C (Epoch AI). Your run is the orange marker.</div>
 </div>
-<div class="notice hidden"><h2>What to notice</h2>The 6ND estimate reproduces the reported 405B compute almost exactly, and the real run used ~38 tokens/param, about 2× Chinchilla: labs overtrain because inference cost scales with N, not D. Faster chips cut wall-clock days; cost moves only if $/GPU-hour falls slower than peak FLOP/s rises. MFU is a direct multiplier on the bill.</div>
+<div class="notice hidden"><h2>What to notice</h2>Cost is linear in both N and D, so overtraining a small model (Course-8B sees ~1,900 tokens/param, ~90× Chinchilla) is cheap next to training a bigger one, and pays back at inference where cost scales with N. For 405B, 6ND gives ≈3.8×10²⁵ FLOP and ≈27M GPU-hours at 40% MFU vs 30.84M reported: the gap is real-world MFU (Meta reports 38–43%), attention FLOPs, and failures/restarts. MFU is a direct multiplier on the bill.</div>
 <div class="model"><b>Model.</b> C ≈ 6·N·D (2ND forward + 4ND backward per token; dense model, for MoE use N_act). The attention option adds Kaplan et al. (2020)'s per-token term 2·L·T·d forward, ×3 for forward+backward, with L and d estimated from N ≈ 12·L·d² at d/L = 128. GPU-hours = C / (peak · MFU · 3600). Cost is GPU rental only; ablations, failed runs, data, and staff push real budgets several times higher. Reference values: Epoch AI notable-models database (est. = Epoch estimate; lab has not published).</div>
 </div>
 <script src="../../assets/common.js"></script><script>

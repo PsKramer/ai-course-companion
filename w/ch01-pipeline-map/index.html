@@ -16,10 +16,10 @@
 @media (max-width:420px){.flow{grid-template-columns:repeat(2,1fr)}.st:nth-child(3n)::after{content:'→'}.st:nth-child(2n)::after{content:''}}
 </style></head><body><div class="wrap">
 <h1>The full pipeline, stage by stage</h1>
-<div class="try"><h2>Try this</h2><ol><li>Tap each stage left to right and follow the artifact: what goes in, what comes out.</li><li>Compare the dominant cost row of Pre-training with Inference/Serving.</li><li>Tap Hardware/Cluster last: it sits under every other stage.</li></ol></div>
+<div class="try"><h2>Try this</h2><ol><li>Tap Tokenizer, then Inference / Serving, and compare their dominant costs.</li><li>Find the two stages that share the KV-cache concept.</li><li>Tap Hardware / Cluster: it sits under every other stage.</li></ol></div>
 <div class="card"><div class="flow" id="flow"></div></div>
 <div class="card panel" id="panel"></div>
-<div class="notice hidden"><h2>What to notice</h2>Every stage's output is the next stage's input, so a defect upstream (bad dedup, a tokenizer that splits numbers badly) is paid for in every later stage. Training is a one-time FLOP bill dominated by 6·N·D; serving is a recurring bill dominated by memory bandwidth and KV-cache capacity, which is why the hardware story differs between the two.</div>
+<div class="notice hidden"><h2>What to notice</h2>Every boundary is a typed artifact with a computable size (token IDs <code>[B, T]</code>, weights N·bytes, KV cache per token), so a defect upstream is paid for in every later stage. Architecture fixes the KV-cache size; serving pays for it. Hardware constrains every stage, not only training: training is a one-time FLOP bill (≈ 6·N·D), serving a recurring bandwidth and memory-capacity bill.</div>
 <div class="model"><b>Numbers</b> are order-of-magnitude anchors for 2024–2026 frontier and open models (e.g. Llama 3.1 405B: 15.6T training tokens, 3.8×10²⁵ FLOP); the chapter pages carry exact sources.</div>
 </div>
 <script src="../../assets/common.js"></script><script>

@@ -1,15 +1,15 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Decode step roofline</title><link rel="stylesheet" href="../../assets/style.css"></head><body><div class="wrap">
 <h1>One decode step: memory-bound or compute-bound?</h1>
-<div class="try"><h2>Try this</h2><ol><li>Defaults are Llama 3.1 70B in bf16 on one H100 at B = 1, T = 8k. Read the step time (~43 ms) and the capacity warning.</li><li>Drop context T to 128 and drag batch B up until the step flips from memory-bound to compute-bound (the knee on the plot).</li><li>Put T back to 8k and drag B again: it never flips. Then try FP8 KV, more GPUs, or B200.</li></ol></div>
+<div class="try"><h2>Try this</h2><ol><li>Defaults are Course-8B (Llama-3.1-8B-like, bf16, L = 32, h_kv = 8, d_h = 128 → 131,072 B of KV per token) on one H100 at B = 1, T = 8k. Raise B to 32: aggregate tok/s rises ~11× while per-sequence speed falls ~3×.</li><li>Set T = 128 and push B to 512: the step finally turns compute-bound. At T = 512 it never does.</li><li>Switch weights to FP8, then try the Llama 3.1 70B preset.</li></ol></div>
 <div class="card">
 <div class="row">
-<label>Preset<select id="pre"><option value="70">Llama 3.1 70B (L=80, h_kv=8, d_h=128)</option><option value="8">Llama 3.1 8B (L=32, h_kv=8, d_h=128)</option><option value="405">Llama 3.1 405B (L=126, h_kv=8, d_h=128)</option></select></label>
+<label>Preset<select id="pre"><option value="8">Course-8B / Llama 3.1 8B (L=32, h_kv=8, d_h=128)</option><option value="70">Llama 3.1 70B (L=80, h_kv=8, d_h=128)</option><option value="405">Llama 3.1 405B (L=126, h_kv=8, d_h=128)</option></select></label>
 <label>Accelerator<select id="acc"><option value="h100">H100 SXM (80 GB, 3.35 TB/s)</option><option value="b200">B200 (180 GB, 8 TB/s)</option></select></label>
 <label style="flex:0 1 140px">GPUs (TP, ideal)<select id="g"><option>1</option><option>2</option><option>4</option><option>8</option></select></label>
 </div>
 <div class="row">
-<label>Params N: <b id="Nv"></b><input type="range" id="N" min="9" max="12" step="0.001" value="10.849"></label>
+<label>Params N: <b id="Nv"></b><input type="range" id="N" min="9" max="12" step="0.001" value="9.9047"></label>
 <label>Weights<select id="wb"><option value="2">bf16 (2 B/param)</option><option value="1">FP8 (1 B/param)</option><option value="0.5">FP4 (0.5 B/param)</option></select></label>
 <label>KV cache<select id="kb"><option value="2">bf16 (2 B)</option><option value="1">FP8 (1 B)</option></select></label>
 </div>
@@ -18,7 +18,7 @@
 <label>Context T (tokens): <b id="Tv"></b><input type="range" id="T" min="7" max="20" step="1" value="13"></label>
 </div>
 <div class="row">
-<label>Layers L<input type="number" id="L" value="80" min="1"></label>
+<label>Layers L<input type="number" id="L" value="32" min="1"></label>
 <label>KV heads h_kv<input type="number" id="hkv" value="8" min="1"></label>
 <label>Head dim d_h<input type="number" id="dh" value="128" min="1"></label>
 </div></div>
@@ -34,12 +34,12 @@
 <tr><th>Memory needed vs HBM</th><td class="num" id="cap"></td></tr>
 </table>
 <canvas id="cv"></canvas><div class="mut">Aggregate tokens/s vs batch B at the current T (log–log). Blue = memory-bound, orange = compute-bound; dot = your B.</div></div>
-<div class="notice hidden"><h2>What to notice</h2>At small B every step streams all the weights for only 2·N·B FLOPs, so intensity ≈ B/b_w FLOP/byte, far below the H100 ridge (~295 FLOP/byte in bf16). Throughput grows almost linearly with B for free until the knee. Long contexts move the bottleneck to the KV cache, which grows with B·T and is not amortized across the batch: per-token intensity saturates at 2·N / (T · KV bytes per token), so at 8k context a 70B model can never reach the ridge however large B gets. That is why GQA/MLA, FP8 KV, and paged KV management matter (see 6.2 KV-cache math).</div>
+<div class="notice hidden"><h2>What to notice</h2>At small B each step streams all the weights for only 2·N·B FLOPs, so intensity ≈ B / b_w FLOP/byte, far below the H100 ridge (~295 FLOP/byte in bf16): batching is nearly free throughput. But the KV cache grows with B·T and is not shared across sequences, so intensity saturates at 2·N / (T · KV bytes per token). At long context the KV cache, not the weights, is the bytes you pay for, which is why GQA/MLA, FP8 KV, and paged KV management matter (see 6.2 KV-cache math). FP8 weights halve the bytes but double the ridge.</div>
 <div class="model"><b>Model.</b> Decode reads every weight once per step plus each sequence's full KV cache; FLOPs ≈ 2·N·B (matmuls only; attention FLOPs 4·L·T·h·d_h per token are ignored, as are activations and kernel overheads, so real step times are higher). Peak dense FLOP/s: H100 989 T (bf16) / 1979 T (FP8; H100 has no FP4 tensor cores, so FP4 weights use the FP8 rate); B200 2.25 P (bf16) / 4.5 P (FP8) / 9 P (FP4). TP across g GPUs is modeled as ideal g× bandwidth, peak, and capacity (no communication cost).</div>
 </div>
 <script src="../../assets/common.js"></script><script>
 const ACC={h100:{bw:3.35e12,cap:80e9,pk:{2:989e12,1:1979e12,0.5:1979e12}},b200:{bw:8e12,cap:180e9,pk:{2:2.25e15,1:4.5e15,0.5:9e15}}};
-const PRE={70:[10.849,80,8,128],8:[9.906,32,8,128],405:[11.607,126,8,128]};
+const PRE={70:[10.849,80,8,128],8:[9.9047,32,8,128],405:[11.607,126,8,128]};
 function model(B,T){const N=10**val('N'),bw_=parseFloat($('#wb').value),bk=parseFloat($('#kb').value),g=parseInt($('#g').value),A=ACC[$('#acc').value];
  const L=val('L'),hk=val('hkv'),dh=val('dh');const W=N*bw_,KV=B*T*2*L*hk*dh*bk,by=W+KV,F=2*N*B;
  const BW=A.bw*g,PK=A.pk[bw_]*g;const tm=by/BW,tc=F/PK;return{N,W,KV,by,F,BW,PK,tm,tc,st:Math.max(tm,tc),cap:A.cap*g,g}}
